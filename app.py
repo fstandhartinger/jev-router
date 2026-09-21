@@ -340,7 +340,7 @@ async def checkout(request:Request):
     if not PAYMENTS_ENABLED: raise HTTPException(503,f"Payments are disabled in Stripe {STRIPE_MODE} mode")
     if not STRIPE_SECRET_KEY: raise HTTPException(503,"Stripe test mode is not configured")
     data=[("mode","payment"),("success_url",APP_URL+"/dashboard?payment=success"),("cancel_url",APP_URL+"/dashboard?payment=cancelled"),("customer_email",u["email"]),("client_reference_id",str(u["id"])),("metadata[user_id]",str(u["id"])),("metadata[credits_cents]",str(amount)),("line_items[0][price_data][currency]","usd"),("line_items[0][price_data][unit_amount]",str(amount)),("line_items[0][price_data][product_data][name]","Jev Router prepaid credits"),("line_items[0][quantity]","1"),("payment_intent_data[receipt_email]",u["email"]),("automatic_tax[enabled]","true" if STRIPE_AUTOMATIC_TAX else "false")]
-    async with httpx.AsyncClient(timeout=20) as client: resp=await client.post("https://api.stripe.com/v1/checkout/sessions",data=data,auth=httpx.BasicAuth(STRIPE_SECRET_KEY,""),headers={"Idempotency-Key":f"topup-{u['id']}-{amount}-{nonce}"})
+    async with httpx.AsyncClient(timeout=20) as client: resp=await client.post("https://api.stripe.com/v1/checkout/sessions",data=dict(data),auth=httpx.BasicAuth(STRIPE_SECRET_KEY,""),headers={"Idempotency-Key":f"topup-{u['id']}-{amount}-{nonce}"})
     if resp.status_code>=400: raise HTTPException(502,"Stripe could not create a checkout session")
     session=resp.json()
     with dbconn() as db:
