@@ -33,6 +33,11 @@ SESSION_SECRET = os.getenv("SESSION_SECRET", "local-development-only-change-me")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_TEST_SECRET_KEY") or os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_TEST_WEBHOOK_SECRET") or os.getenv("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_MODE = "test" if (STRIPE_SECRET_KEY.startswith("sk_test_") or not STRIPE_SECRET_KEY) else "live"
+PAYMENTS_ENABLED = (
+    os.getenv("PAYMENTS_ENABLED_TEST", "false").lower() == "true"
+    if STRIPE_MODE == "test"
+    else os.getenv("PAYMENTS_ENABLED_LIVE", "false").lower() == "true"
+)
 STRIPE_AUTOMATIC_TAX = os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() == "true"
 MIN_TOPUP_CENTS = int(os.getenv("MIN_TOPUP_CENTS", "1000"))
 OPERATOR_DAILY_CAP_CENTS = int(os.getenv("OPERATOR_DAILY_CAP_CENTS", "2500"))
@@ -49,6 +54,16 @@ MODELS: dict[str, dict[str, Any]] = {
     "decider-2b-vision": {"provider":"self-hosted Mapika decider","status":"live" if os.getenv("DECIDER_ENDPOINT") else "offline","modalities":["text","image"],"price_per_1k_cents":5,"billing":"$0.05 / 1,000 decisions (includes disclosed infrastructure margin)","jevbench":None,"multimodal_benchmark":{"track":"public-pilot-80","score":56.25},"terms":"Self-hosted image decision model."},
     "laya-421m": {"provider":"self-hosted Laya","status":"live" if os.getenv("LAYA_ENDPOINT") else "offline","modalities":["text"],"price_per_1k_cents":1,"billing":"$0.01 / 1,000 decisions (includes disclosed infrastructure margin)","jevbench":None,"terms":"CPU-capable; endpoint remains off until latency is validated."},
 }
+if STRIPE_MODE == "test" and PAYMENTS_ENABLED:
+    MODELS["stripe-test-paid"] = {
+        "provider":"Jev Router test fixture",
+        "status":"live",
+        "modalities":["text"],
+        "price_per_1k_cents":10,
+        "billing":"$0.10 / 1,000 decisions; Stripe test mode only",
+        "jevbench":None,
+        "terms":"Deterministic non-production route for end-to-end billing acceptance tests.",
+    }
 
 app = FastAPI(title="Jev Router", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=APP_URL.startswith("https://"), max_age=86400 * 14)
@@ -194,7 +209,7 @@ def startup():
     ensure_db(); reconcile_stale_reservations()
 
 @app.get("/health")
-def health(): return {"ok": True, "stripe_mode": STRIPE_MODE}
+def health(): return {"ok": True, "stripe_mode": STRIPE_MODE, "payments_enabled": PAYMENTS_ENABLED}
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
@@ -320,6 +335,7 @@ async def checkout(request:Request):
     nonce=str(form.get("checkout_nonce", ""))
     if not nonce or not hmac.compare_digest(nonce,request.session.get("checkout_nonce","")): raise HTTPException(409,"Stale checkout form; reload the dashboard")
     if amount<MIN_TOPUP_CENTS or amount>100_000: raise HTTPException(400,f"Top-up must be {MIN_TOPUP_CENTS}–100000 cents")
+    if not PAYMENTS_ENABLED: raise HTTPException(503,f"Payments are disabled in Stripe {STRIPE_MODE} mode")
     if not STRIPE_SECRET_KEY: raise HTTPException(503,"Stripe test mode is not configured")
     data=[("mode","payment"),("success_url",APP_URL+"/dashboard?payment=success"),("cancel_url",APP_URL+"/dashboard?payment=cancelled"),("customer_email",u["email"]),("client_reference_id",str(u["id"])),("metadata[user_id]",str(u["id"])),("metadata[credits_cents]",str(amount)),("line_items[0][price_data][currency]","usd"),("line_items[0][price_data][unit_amount]",str(amount)),("line_items[0][price_data][product_data][name]","Jev Router prepaid credits"),("line_items[0][quantity]","1"),("payment_intent_data[receipt_email]",u["email"]),("automatic_tax[enabled]","true" if STRIPE_AUTOMATIC_TAX else "false")]
     async with httpx.AsyncClient(timeout=20) as client: resp=await client.post("https://api.stripe.com/v1/checkout/sessions",data=data,auth=(STRIPE_SECRET_KEY,""),headers={"Idempotency-Key":f"topup-{u['id']}-{amount}-{nonce}"})
@@ -446,6 +462,17 @@ async def post_json(url:str,body:dict,headers:dict,timeout=120):
 
 async def call_model(model:str,body:dict,request:Request):
     payload={k:v for k,v in body.items() if k not in ("model","fallback")}
+    if model=="stripe-test-paid":
+        if STRIPE_MODE != "test" or not PAYMENTS_ENABLED:
+            raise ValueError("test billing route is disabled")
+        answers={}
+        for name,q in (body.get("questions") or {}).items():
+            if q.get("type")=="noul": answers[name]={"type":"noul","noul":0.75}
+            elif q.get("type")=="choice":
+                option=next(iter(q["criteria"]))
+                answers[name]={"type":"choice","choice":option,"confidence":1.0}
+            else: answers[name]={"type":"score","score":0}
+        return {"model":model,"answers":answers,"usage":{"estimated_cost_usd":0.0001,"test_mode":True}}
     if model=="classifier-fast":
         answers={}
         async with httpx.AsyncClient(timeout=15) as client:
