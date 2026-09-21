@@ -327,9 +327,12 @@ async def revoke_key(key_id:int,request:Request):
 @app.get("/usage",response_class=HTMLResponse)
 def usage_page(request:Request):
     u=require_user(request)
-    with dbconn() as db: rows=db.execute("SELECT created_at,model,provider,microusd,latency_ms FROM usage_events WHERE user_id=? ORDER BY id DESC LIMIT 200",(u["id"],)).fetchall()
+    with dbconn() as db:
+        rows=db.execute("SELECT created_at,model,provider,microusd,latency_ms FROM usage_events WHERE user_id=? ORDER BY id DESC LIMIT 200",(u["id"],)).fetchall()
+        credits=db.execute("SELECT created_at,kind,microusd,ref FROM credit_events WHERE user_id=? ORDER BY id DESC LIMIT 200",(u["id"],)).fetchall()
     body="".join(f'<tr><td>{esc(r["created_at"][:19])}</td><td>{esc(r["model"])}</td><td>{esc(r["provider"])}</td><td>${r["microusd"]/1_000_000:.6f}</td><td>{r["latency_ms"]:.0f} ms</td></tr>' for r in rows) or '<tr><td colspan=5>No usage yet.</td></tr>'
-    return page("Usage",f'<h1 style="font-size:52px">Usage</h1><p class="lead">Balance: ${balance(u["id"])/1_000_000:.2f}</p><div class="table-wrap"><table><thead><tr><th scope="col">Time (UTC)</th><th scope="col">Model</th><th scope="col">Provider</th><th scope="col">Charged</th><th scope="col">Latency</th></tr></thead><tbody>{body}</tbody></table></div>',u)
+    ledger="".join(f'<tr><td>{esc(r["created_at"][:19])}</td><td>{esc(r["kind"])}</td><td>{r["microusd"]/1_000_000:+.6f} USD</td><td><code>{esc(r["ref"])}</code></td></tr>' for r in credits) or '<tr><td colspan=4>No credit entries yet.</td></tr>'
+    return page("Usage",f'<h1 style="font-size:52px">Usage</h1><p class="lead">Balance: ${balance(u["id"])/1_000_000:.4f}</p><div class="table-wrap"><table><thead><tr><th scope="col">Time (UTC)</th><th scope="col">Model</th><th scope="col">Provider</th><th scope="col">Charged</th><th scope="col">Latency</th></tr></thead><tbody>{body}</tbody></table></div><h2>Credit ledger</h2><div class="table-wrap"><table><thead><tr><th scope="col">Time (UTC)</th><th scope="col">Entry</th><th scope="col">Amount</th><th scope="col">Reference</th></tr></thead><tbody>{ledger}</tbody></table></div>',u)
 
 @app.post("/billing/checkout")
 async def checkout(request:Request):
