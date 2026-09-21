@@ -1,6 +1,11 @@
 # Jev Router
 
-Jev Router is neutral infrastructure for explicitly selected Jev-class decision models. It preserves the TypeSafe System One request and answer shape, supports caller-ordered fallbacks, and never selects a model from a benchmark score.
+Jev Router is neutral infrastructure for Jev-class decision models. It preserves the TypeSafe System One request and answer shape, supports explicitly selected models and caller-ordered fallbacks, plus two transparent meta names.
+
+- `jev-class`: healthy text models in descending JevBench score order.
+- `image-jev-class`: healthy image models in descending public-pilot-80 score order.
+
+The next score is the fallback and model ID breaks ties. The response body and `X-Jev-Model` name the concrete model that answered, whose published price applies. Naming a concrete model bypasses the meta policy.
 
 Public routes:
 

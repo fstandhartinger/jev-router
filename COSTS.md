@@ -16,15 +16,17 @@ Scale-to-zero estimate: 15–60 seconds cached, 1–5 minutes uncached. These mo
 
 ## djev — DiffusionGemma 26B
 
-Capacity basis: measured 110.063 decisions/s at concurrency 16 on one H200.
+Production basis: measured 21 September 2026 on the one Lium RTX PRO 6000 96 GB node now serving djev. Warm throughput was 14.372 decisions/s at concurrency 1, 34.684 at 4, and 58.422 at 16. Corresponding p50/p95 latencies were 0.069/0.072 s, 0.114/0.119 s, and 0.267/0.299 s. A stratified 20-item public image sample matched the H200 BF16 result item for item (11/20), so the cheaper card preserves the measured accuracy.
 
-| Setup | Rate | Always-on month | $/1,000 at 10% | 30% | 100% |
-|---|---:|---:|---:|---:|---:|
-| Lium H200 | $2.90/h | $2,117.00 | $0.0732 | $0.0244 | $0.0073 |
-| RunPod H200 pod | $4.59/h | $3,350.70 | $0.1158 | $0.0386 | $0.0116 |
-| RunPod H200 serverless | $5.93 active-h | $4,328.90 continuously; $0 idle | $0.0150 active-compute | same | same |
+| Setup | Rate | Always-on day | Always-on month | $/1,000 at 10% | 30% | 100% |
+|---|---:|---:|---:|---:|---:|---:|
+| Lium RTX PRO 6000 96 GB, measured and live | $1.19/h | $28.56 | $868.70 | $0.0566 | $0.0189 | $0.00566 |
+| Lium H100 80 GB, available but not selected | $1.30/h | $31.20 | $949.00 | — | — | — |
+| Lium H200, earlier measured reference | $3.00/h | $72.00 | $2,190.00 | $0.0757 | $0.0252 | $0.00757 |
 
-RunPod's RTX Pro 6000 fits the approximately 49.2 GiB runtime at $2.09/h ($1,525.70/month), but throughput is unmeasured, so no unit-cost claim is made. Estimated djev cold start is 30–120 seconds cached and potentially several minutes uncached.
+The live price is **$0.06 per 1,000 decisions**: the measured RTX PRO 6000 cost at 10% utilization is $0.0566, plus about a 6% infrastructure margin and rounded to a whole cent per 1,000. Actual early utilization may be lower; the public price is not silently changed per request.
+
+The cheaper RTX 5090 NVFP4 path was attempted first. Lium's eight-card hosts did not permit a one-GPU split, and the only two-card split listing lacked the required ports and disappeared; no RTX 5090 instance was created. The A100 listing was $1.23/h per GPU ($29.52/day) but did not disclose 40 versus 80 GB, so it was not cheaper than the confirmed-fit RTX PRO 6000. The H100 crossed the user's approval boundary at $31.20/day. Estimated djev cold start is about two to four minutes with a cached checkpoint, longer on the first 49 GB download.
 
 ## Laya — 421M
 
@@ -32,4 +34,4 @@ The cheapest workable placement is Sandy CPU at effectively $0 incremental GPU c
 
 ## Decision
 
-Default to scale-to-zero/on-demand. No GPU is running. No always-on deployment above $150/month will be started without Florian's approval.
+One Lium RTX PRO 6000 node runs djev continuously at $28.56/day, below the pre-approved $30/day ceiling. Docker restarts the model service automatically; Jev Router probes `/ready` every 15 seconds and removes djev from both meta routes while it is unhealthy.

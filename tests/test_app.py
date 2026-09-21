@@ -22,7 +22,8 @@ def test_public_pages_and_model_neutrality(client):
     for path in ("/","/health","/models","/models-page","/docs","/status","/terms","/privacy","/refunds","/impressum"):
         assert client.get(path).status_code==200
     data=client.get("/models").json()
-    assert "No default model" in data["neutrality"]
+    assert "jev-class uses descending text JevBench" in data["routing_policy"]
+    assert next(x for x in data["data"] if x["id"]=="jev-class")["routing_order"]==["classifier-fast"]
     assert next(x for x in data["data"] if x["id"]=="jev-typesafe")["status"]=="disabled"
 
 def test_auth_required_and_explicit_model(client):
@@ -165,3 +166,35 @@ def test_failed_paid_provider_refunds_reservation(client):
     r=client.post("/v1/systemone",headers={"Authorization":"Bearer "+key},json=payload)
     assert r.status_code==502
     assert app.balance(uid)==1_000_000
+
+def test_meta_routes_by_published_score_and_returns_concrete_model(client,monkeypatch):
+    uid,key=make_user_key()
+    with app.dbconn() as db: db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,1_000_000,"test","seed",app.now_iso()))
+    monkeypatch.setitem(app.PROVIDER_HEALTH,"djev",True)
+    monkeypatch.setitem(app.PROVIDER_HEALTH,"semif-qwen3.5-4b",True)
+    calls=[]
+    async def fake(model,body,request):
+        calls.append(model)
+        if model=="classifier-fast": raise RuntimeError("temporary outage")
+        return {"answers":{"q":{"type":"noul","noul":0.7}}}
+    monkeypatch.setattr(app,"call_model",fake)
+    payload={"model":"jev-class","state":"x","questions":{"q":{"type":"noul"}}}
+    response=client.post("/v1/systemone",headers={"Authorization":"Bearer "+key},json=payload)
+    assert response.status_code==200
+    assert calls==["classifier-fast","semif-qwen3.5-4b"]
+    assert response.headers["X-Jev-Model"]=="semif-qwen3.5-4b"
+    assert response.json()["model"]=="semif-qwen3.5-4b"
+    assert response.headers["X-Jev-Cost-Usd"]=="0.000050"
+
+def test_image_meta_uses_separate_image_ranking(client,monkeypatch):
+    uid,key=make_user_key()
+    with app.dbconn() as db: db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,1_000_000,"test","seed",app.now_iso()))
+    monkeypatch.setitem(app.PROVIDER_HEALTH,"djev",True)
+    monkeypatch.setitem(app.PROVIDER_HEALTH,"decider-2b-vision",True)
+    image="data:image/png;base64,"+base64.b64encode(b"tiny").decode()
+    async def fake(model,body,request): return {"answers":{}}
+    monkeypatch.setattr(app,"call_model",fake)
+    payload={"model":"image-jev-class","state":"x","images":[image],"questions":{"q":{"type":"choice","criteria":{"a":None,"b":None}}}}
+    response=client.post("/v1/multimodal",headers={"Authorization":"Bearer "+key},json=payload)
+    assert response.status_code==200
+    assert response.headers["X-Jev-Model"]=="decider-2b-vision"

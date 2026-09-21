@@ -1,7 +1,8 @@
 """Jev Router product gateway.
 
-Explicit routing is a product invariant: the server never chooses a model from a
-benchmark score. Request bodies (including images) are never logged or stored.
+Concrete models remain explicitly selectable. The two documented meta model
+names use a public, deterministic score order among providers healthy now.
+Request bodies (including images) are never logged or stored.
 """
 from __future__ import annotations
 
@@ -50,9 +51,13 @@ MODELS: dict[str, dict[str, Any]] = {
     "jev-typesafe": {"provider":"TypeSafe","status":"disabled","modalities":["text"],"price_per_1k_cents":0,"billing":"direct provider use only; no router markup","jevbench":{"track":"text-v1.2","score":75.4},"terms":"Disabled pending written standalone-gateway permission; the original Jev does not accept images."},
     "jev-vercel": {"provider":"Vercel AI Gateway","status":"disabled","modalities":["text"],"price_per_1k_cents":0,"billing":"direct provider use only; no router markup","jevbench":{"track":"text-v1.2","score":75.4},"terms":"Disabled: Vercel does not override the underlying TypeSafe restriction."},
     "semif-qwen3.5-4b": {"provider":"self-hosted SemIf","status":"live" if os.getenv("SEMIF_ENDPOINT") else "offline","modalities":["text"],"price_per_1k_cents":5,"billing":"$0.05 / 1,000 decisions (includes disclosed infrastructure margin)","jevbench":{"track":"text-v1.2","score":74.7},"terms":"Open implementation; scale-to-zero endpoint."},
-    "djev": {"provider":"self-hosted djev-dev","status":"live" if os.getenv("DJEV_ENDPOINT") else "offline","modalities":["text","image"],"price_per_1k_cents":8,"billing":"$0.08 / 1,000 decisions (includes disclosed infrastructure margin)","jevbench":{"track":"text-v1.2","score":74.3},"multimodal_benchmark":{"track":"public-pilot-80","score":53.75},"terms":"Apache-2.0 runtime and weights; Maisa hosted API is not proxied."},
+    "djev": {"provider":"self-hosted djev-dev","status":"live" if os.getenv("DJEV_ENDPOINT") else "offline","modalities":["text","image"],"price_per_1k_cents":6,"billing":"$0.06 / 1,000 decisions (10% utilization cost basis plus about 6% infrastructure margin)","jevbench":{"track":"text-v1.2","score":74.3},"multimodal_benchmark":{"track":"public-pilot-80","score":53.75},"terms":"Apache-2.0 runtime and weights; Maisa hosted API is not proxied."},
     "decider-2b-vision": {"provider":"self-hosted Mapika decider","status":"live" if os.getenv("DECIDER_ENDPOINT") else "offline","modalities":["text","image"],"price_per_1k_cents":5,"billing":"$0.05 / 1,000 decisions (includes disclosed infrastructure margin)","jevbench":None,"multimodal_benchmark":{"track":"public-pilot-80","score":56.25},"terms":"Self-hosted image decision model."},
     "laya-421m": {"provider":"self-hosted Laya","status":"live" if os.getenv("LAYA_ENDPOINT") else "offline","modalities":["text"],"price_per_1k_cents":1,"billing":"$0.01 / 1,000 decisions (includes disclosed infrastructure margin)","jevbench":None,"terms":"CPU-capable; endpoint remains off until latency is validated."},
+}
+META_MODELS: dict[str, dict[str, Any]] = {
+    "jev-class": {"provider":"Jev Router transparent meta route","status":"offline","modalities":["text"],"price_per_1k_cents":None,"billing":"The price of the concrete model that answers.","jevbench":None,"terms":"Highest text JevBench score among healthy models; next score is the automatic fallback."},
+    "image-jev-class": {"provider":"Jev Router transparent meta route","status":"offline","modalities":["text","image"],"price_per_1k_cents":None,"billing":"The price of the concrete model that answers.","jevbench":None,"multimodal_benchmark":None,"terms":"Highest public-pilot-80 image score among healthy models; next score is the automatic fallback."},
 }
 if STRIPE_MODE == "test" and PAYMENTS_ENABLED:
     MODELS["stripe-test-paid"] = {
@@ -64,6 +69,62 @@ if STRIPE_MODE == "test" and PAYMENTS_ENABLED:
         "jevbench":None,
         "terms":"Deterministic non-production route for end-to-end billing acceptance tests.",
     }
+
+PROVIDER_HEALTH: dict[str, bool] = {
+    model: bool(os.getenv(env)) for model, env in {
+        "semif-qwen3.5-4b":"SEMIF_ENDPOINT", "djev":"DJEV_ENDPOINT",
+        "decider-2b-vision":"DECIDER_ENDPOINT", "laya-421m":"LAYA_ENDPOINT",
+    }.items()
+}
+PROVIDER_HEALTH["classifier-fast"]=True
+HEALTH_TASK: asyncio.Task | None = None
+
+def concrete_status(model: str) -> str:
+    status=MODELS[model]["status"]
+    if model in PROVIDER_HEALTH and status != "disabled":
+        return "live" if PROVIDER_HEALTH[model] else "offline"
+    return status
+
+def meta_candidates(meta: str) -> list[str]:
+    score_key="multimodal_benchmark" if meta=="image-jev-class" else "jevbench"
+    candidates=[]
+    for model, info in MODELS.items():
+        score=info.get(score_key)
+        if concrete_status(model)!="live" or not score:
+            continue
+        if meta=="image-jev-class" and "image" not in info["modalities"]:
+            continue
+        candidates.append((float(score["score"]),model))
+    return [model for _,model in sorted(candidates,key=lambda item:(-item[0],item[1]))]
+
+def public_models() -> dict[str, dict[str, Any]]:
+    result={k:{**v,"status":concrete_status(k)} for k,v in MODELS.items()}
+    for meta, info in META_MODELS.items():
+        candidates=meta_candidates(meta)
+        result[meta]={**info,"status":"live" if candidates else "offline","routing_order":candidates}
+    return result
+
+async def probe_providers() -> None:
+    mapping={"semif-qwen3.5-4b":"SEMIF_ENDPOINT","djev":"DJEV_ENDPOINT","decider-2b-vision":"DECIDER_ENDPOINT","laya-421m":"LAYA_ENDPOINT"}
+    while True:
+        async with httpx.AsyncClient(timeout=5) as client:
+            try:
+                response=await client.get("https://classifier.dev/health")
+                PROVIDER_HEALTH["classifier-fast"]=response.status_code<500
+            except Exception:
+                PROVIDER_HEALTH["classifier-fast"]=False
+            for model, env in mapping.items():
+                endpoint=os.getenv(env,"").rstrip("/")
+                if not endpoint:
+                    PROVIDER_HEALTH[model]=False
+                    continue
+                try:
+                    health_path="/ready" if model=="djev" else "/health"
+                    response=await client.get(endpoint+health_path)
+                    PROVIDER_HEALTH[model]=response.status_code<500
+                except Exception:
+                    PROVIDER_HEALTH[model]=False
+        await asyncio.sleep(15)
 
 app = FastAPI(title="Jev Router", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=APP_URL.startswith("https://"), max_age=86400 * 14)
@@ -207,8 +268,17 @@ def page(title: str, body: str, user=None) -> HTMLResponse:
     return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Neutral infrastructure for explicit Jev-class decision model routing."><title>{esc(title)} · Jev Router</title><style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a></footer></body></html>''')
 
 @app.on_event("startup")
-def startup():
+async def startup():
+    global HEALTH_TASK
     ensure_db(); reconcile_stale_reservations()
+    HEALTH_TASK=asyncio.create_task(probe_providers())
+
+@app.on_event("shutdown")
+async def shutdown():
+    if HEALTH_TASK:
+        HEALTH_TASK.cancel()
+        try: await HEALTH_TASK
+        except asyncio.CancelledError: pass
 
 @app.get("/health")
 def health(): return {"ok": True, "stripe_mode": STRIPE_MODE, "payments_enabled": PAYMENTS_ENABLED}
@@ -216,10 +286,10 @@ def health(): return {"ok": True, "stripe_mode": STRIPE_MODE, "payments_enabled"
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     user=current_user(request)
-    return page("Decision-model infrastructure", '''<section class="hero"><div class="eyebrow">Decision infrastructure, without hidden routing</div><h1>One API for Jev-class decision models.</h1><p class="lead">Choose the model yourself, or provide an ordered fallback list. Text and image decisions use the same typed answer contract. Benchmarks inform; they never route.</p><div class="actions"><a class="button primary" href="/docs">Read the API docs</a><a class="button" href="/models-page">Compare models</a></div></section><section class="grid"><div class="card"><h3>Explicit by design</h3><p class="muted">No default model and no ranking-based selection. Every response names the provider and model.</p></div><div class="card"><h3>Neutral economics</h3><p class="muted">Self-hosted prices disclose a small infrastructure margin. Third-party routes remain disabled until written permission exists.</p></div><div class="card"><h3>Privacy bounded</h3><p class="muted">We do not log or retain request bodies. Your selected provider receives the request.</p></div></section>''', user)
+    return page("Decision-model infrastructure", '''<section class="hero"><div class="eyebrow">Decision infrastructure, with transparent routing</div><h1>One API for Jev-class decision models.</h1><p class="lead">Name a concrete model, provide your own fallback list, or use the published <code>jev-class</code> and <code>image-jev-class</code> score order. Every response names the concrete model that answered.</p><div class="actions"><a class="button primary" href="/docs">Read the API docs</a><a class="button" href="/models-page">Compare models</a></div></section><section class="grid"><div class="card"><h3>Transparent meta routes</h3><p class="muted">The highest benchmark score among healthy eligible models answers first; the next score is the fallback.</p></div><div class="card"><h3>Neutral economics</h3><p class="muted">Meta calls cost exactly the published price of the model that answered. Self-hosted prices disclose a small infrastructure margin.</p></div><div class="card"><h3>Privacy bounded</h3><p class="muted">We do not log or retain request bodies. Your selected provider receives the request.</p></div></section>''', user)
 
 @app.get("/models")
-def models(): return {"object":"list","data":[{"id":k,**v} for k,v in MODELS.items()],"neutrality":"No default model. Benchmark fields are informational and never used for routing."}
+def models(): return {"object":"list","data":[{"id":k,**v} for k,v in public_models().items()],"routing_policy":"Concrete IDs are never rerouted. jev-class uses descending text JevBench score among healthy models; image-jev-class uses descending public-pilot-80 score among healthy image models. The next score is fallback; ties use model ID. Price and response model are those of the concrete model that answers."}
 
 @app.get("/models-page", response_class=HTMLResponse)
 def models_page(request: Request):
@@ -228,8 +298,8 @@ def models_page(request: Request):
         if v.get("jevbench"): parts.append(f'{v["jevbench"]["score"]} ({v["jevbench"]["track"]})')
         if v.get("multimodal_benchmark"): parts.append(f'{v["multimodal_benchmark"]["score"]}% ({v["multimodal_benchmark"]["track"]})')
         return "<br>".join(map(esc,parts)) or "—"
-    rows="".join(f'<tr><th scope="row"><strong>{esc(k)}</strong><br><span class="muted">{esc(v["provider"])}</span></th><td><span class="badge {v["status"]}">{esc(v["status"])}</span></td><td>{esc(", ".join(v["modalities"]))}</td><td>{esc(v["billing"])}</td><td>{bench(v)}</td></tr>' for k,v in MODELS.items())
-    return page("Models", '<h1 style="font-size:52px">Models</h1><p class="lead">Availability, capabilities, prices, and separately labeled benchmark context. Scores never choose a route.</p><div class="table-wrap"><table><thead><tr><th>Model</th><th>Status</th><th>Input</th><th>Price</th><th>Benchmark track</th></tr></thead><tbody>'+rows+'</tbody></table></div><p class="notice">TypeSafe and Vercel Jev are disabled pending written permission. Hosted Maisa djev is not proxied. Benchmarks were observed 21 September 2026.</p>', current_user(request))
+    rows="".join(f'<tr><th scope="row"><strong>{esc(k)}</strong><br><span class="muted">{esc(v["provider"])}</span></th><td><span class="badge {v["status"]}">{esc(v["status"])}</span></td><td>{esc(", ".join(v["modalities"]))}</td><td>{esc(v["billing"])}</td><td>{bench(v)}</td></tr>' for k,v in public_models().items())
+    return page("Models", '<h1 style="font-size:52px">Models</h1><p class="lead">Choose a concrete model, or use one of two transparent meta routes.</p><div class="notice"><strong>Published routing rule:</strong> <code>jev-class</code> tries healthy text models by descending JevBench score. <code>image-jev-class</code> tries healthy image models by descending public-pilot-80 score. The next score is fallback; ties use model ID. The response and <code>X-Jev-Model</code> name the concrete model that answered, and its listed price applies. Concrete model IDs are never rerouted.</div><p>Text JevBench v1.2 and the public 80-item image pilot are separate tracks; their scores are not comparable.</p><div class="table-wrap"><table><thead><tr><th>Model</th><th>Status</th><th>Input</th><th>Price</th><th>Benchmark track</th></tr></thead><tbody>'+rows+'</tbody></table></div><p class="notice">TypeSafe and Vercel Jev are disabled pending written permission. Hosted Maisa djev is not proxied. Benchmarks were observed 21 September 2026.</p>', current_user(request))
 
 DOC_EXAMPLE='''curl https://jev-router.com/v1/systemone \\
   -H "Authorization: Bearer jvr_…" \\
@@ -238,7 +308,11 @@ DOC_EXAMPLE='''curl https://jev-router.com/v1/systemone \\
 
 @app.get("/docs", response_class=HTMLResponse)
 def docs(request: Request):
-    return page("API docs", f'''<h1 style="font-size:52px">API docs</h1><p class="lead">The TypeSafe System One contract, with explicit routing.</p><h2>Text decisions</h2><pre>{esc(DOC_EXAMPLE)}</pre><h2>Multimodal decisions</h2><p>POST <code>/v1/multimodal</code> with the same body plus up to {MAX_IMAGES} <code>data:image/png;base64,…</code> values in <code>images</code>. Only image-capable models are accepted.</p><h2>Fallbacks</h2><pre>{esc(json.dumps({"model":"djev","fallback":["decider-2b-vision"],"state":"…","images":["data:image/webp;base64,…"],"questions":{"decision":{"type":"choice","criteria":{"a":None,"b":None}}}}, indent=2))}</pre><h2>Python</h2><pre>import requests\nrequests.post("https://jev-router.com/v1/systemone", headers={{"Authorization":"Bearer jvr_…"}}, json={{...}}).json()</pre><h2>JavaScript</h2><pre>await fetch("https://jev-router.com/v1/systemone", {{method:"POST", headers:{{Authorization:"Bearer jvr_…","Content-Type":"application/json"}}, body:JSON.stringify(payload)}})</pre><h2>OpenAI-compatible convenience</h2><p><code>POST /v1/chat/completions</code> accepts <code>model</code> and a final user message containing a JSON System One request. It is a convenience adapter; the native route is canonical.</p>''', current_user(request))
+    text_meta=DOC_EXAMPLE.replace('"classifier-fast"','"jev-class"')
+    image_meta='''curl https://jev-router.com/v1/multimodal \\
+  -H "Authorization: Bearer jvr_…" -H "Content-Type: application/json" \\
+  -d '{"model":"image-jev-class","state":"Classify the image.","images":["data:image/jpeg;base64,…"],"questions":{"scene":{"type":"choice","criteria":{"indoor":null,"outdoor":null}}}}' '''
+    return page("API docs", f'''<h1 style="font-size:52px">API docs</h1><p class="lead">The TypeSafe System One contract, with concrete or transparent meta routing.</p><h2>Concrete text model</h2><pre>{esc(DOC_EXAMPLE)}</pre><h2>Text meta model</h2><pre>{esc(text_meta)}</pre><h2>Image meta model</h2><pre>{esc(image_meta)}</pre><p><code>image-jev-class</code> uses up to {MAX_IMAGES} bounded PNG/JPEG/WebP data URLs.</p><h2>Meta routing policy</h2><p><code>jev-class</code> tries healthy text models in descending JevBench order. <code>image-jev-class</code> uses the separate public-pilot-80 image order. The next score is fallback; model ID breaks ties. The concrete answer model is returned in JSON and <code>X-Jev-Model</code>. Its listed price applies. Name a concrete model when you do not want this policy.</p><h2>Caller-selected fallbacks</h2><pre>{esc(json.dumps({"model":"djev","fallback":["decider-2b-vision"],"state":"…","images":["data:image/webp;base64,…"],"questions":{"decision":{"type":"choice","criteria":{"a":None,"b":None}}}}, indent=2))}</pre><h2>Python</h2><pre>import requests\nrequests.post("https://jev-router.com/v1/systemone", headers={{"Authorization":"Bearer jvr_…"}}, json={{...}}).json()</pre><h2>JavaScript</h2><pre>await fetch("https://jev-router.com/v1/systemone", {{method:"POST", headers:{{Authorization:"Bearer jvr_…","Content-Type":"application/json"}}, body:JSON.stringify(payload)}})</pre><h2>OpenAI-compatible convenience</h2><p><code>POST /v1/chat/completions</code> accepts <code>model</code> and a final user message containing a JSON System One request. It is a convenience adapter; the native route is canonical.</p>''', current_user(request))
 
 LEGAL={
 "terms":("Terms of service","Jev Router is a prepaid, usage-based decision-model gateway. You must choose a model explicitly and use it lawfully. Disabled third-party routes carry no Jev Router markup if later permitted. Self-hosted usage is deducted from prepaid credits at the published price. Checkout shows any Stripe-calculated tax before payment when Stripe Tax is enabled; we make no statement about your tax treatment. No SLA or warranty is provided. We may suspend abusive or unsafe traffic and enforce rate and spend limits."),
@@ -254,7 +328,7 @@ for _slug,(_title,_text) in LEGAL.items():
 
 @app.get("/status", response_class=HTMLResponse)
 def status(request: Request):
-    live=sum(v["status"]=="live" for v in MODELS.values())
+    live=sum(v["status"]=="live" for v in public_models().values())
     return page("Status", f'<h1 style="font-size:52px">Status</h1><div class="card"><h3><span class="live">●</span> Gateway operational</h3><p class="muted">{live} routes currently report live. Scale-to-zero models may have a cold start. Check machine-readable state at <a href="/models"><code>/models</code></a>.</p></div>', current_user(request))
 
 @app.get("/login")
@@ -460,11 +534,21 @@ def validate_body(body:dict,multimodal:bool):
     if not isinstance(fallback,list) or any(not isinstance(x,str) for x in fallback): raise HTTPException(400,"fallback must be a list of model IDs")
     if body.get("model") is not None and not isinstance(body.get("model"),str): raise HTTPException(400,"model must be a model ID")
     choices=([body["model"]] if body.get("model") else [])+fallback
-    if not choices: raise HTTPException(400,{"error":"model_required","options":list(MODELS)})
+    if not choices: raise HTTPException(400,{"error":"model_required","options":list(MODELS)+list(META_MODELS)})
     if len(choices)!=len(set(choices)): raise HTTPException(400,"Duplicate models in route")
-    unknown=[m for m in choices if m not in MODELS]
+    unknown=[m for m in choices if m not in MODELS and m not in META_MODELS]
     if unknown: raise HTTPException(400,{"error":"unknown_model","models":unknown})
-    if "classifier-fast" in choices and any(q.get("type")=="score" for q in questions.values()):
+    has_score=any(q.get("type")=="score" for q in questions.values())
+    expanded=[]
+    for model in choices:
+        routed=meta_candidates(model) if model in META_MODELS else [model]
+        if model in META_MODELS and has_score:
+            routed=[candidate for candidate in routed if candidate!="classifier-fast"]
+        if model in META_MODELS and not routed:
+            raise HTTPException(503,{"error":"meta_model_offline","model":model})
+        expanded.extend(routed)
+    choices=list(dict.fromkeys(expanded))
+    if "classifier-fast" in choices and has_score:
         raise HTTPException(400,"classifier-fast does not support score questions")
     images=body.get("images") or []
     if multimodal and not images: raise HTTPException(400,"images are required")
@@ -559,6 +643,8 @@ async def decide(request:Request,multimodal=False):
         started=time.perf_counter()
         try:
             out=await call_model(model,body,request); ms=round((time.perf_counter()-started)*1000,1)
+            if isinstance(out,dict): out["model"]=model
+            if model in PROVIDER_HEALTH: PROVIDER_HEALTH[model]=True
             with dbconn() as db:
                 db.execute("INSERT INTO usage_events(user_id,api_key_id,model,microusd,provider,latency_ms,created_at) VALUES(?,?,?,?,?,?,?)",(user["id"],user["key_id"],model,microusd,info["provider"],ms,now_iso()))
                 db.execute("DELETE FROM spend_reservations WHERE ref=?",(reservation,))
@@ -567,6 +653,7 @@ async def decide(request:Request,multimodal=False):
         except asyncio.CancelledError:
             refund_reservation(user["id"],microusd,reservation); raise
         except Exception as e:
+            if model in PROVIDER_HEALTH: PROVIDER_HEALTH[model]=False
             refund_reservation(user["id"],microusd,reservation)
             errors.append({"model":model,"error":str(e)[:160]})
     raise HTTPException(502,{"error":"all_providers_failed","attempts":errors})
@@ -588,7 +675,7 @@ async def chat(request:Request):
         headers=request.headers
         async def json(self): return native
     response=await decide(Wrapped(),bool(native.get("images"))); data=json.loads(response.body)
-    return JSONResponse({"id":"jev-"+secrets.token_hex(8),"object":"chat.completion","created":int(time.time()),"model":body.get("model"),"choices":[{"index":0,"message":{"role":"assistant","content":json.dumps(data)},"finish_reason":"stop"}]},headers=dict(response.headers))
+    return JSONResponse({"id":"jev-"+secrets.token_hex(8),"object":"chat.completion","created":int(time.time()),"model":response.headers.get("X-Jev-Model"),"choices":[{"index":0,"message":{"role":"assistant","content":json.dumps(data)},"finish_reason":"stop"}]},headers=dict(response.headers))
 
 if __name__ == "__main__":
     import uvicorn
