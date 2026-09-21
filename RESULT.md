@@ -34,7 +34,7 @@ The BF16 checkpoint is 48.1 GiB on disk and the runtime reported about 49.2 GiB 
 | classifier-fast | **live** | classifier.dev's 19 Sep terms permit lawful use within its per-IP limits and say answers are the caller's to use. The gateway stays within those limits, charges nothing, and identifies the provider. |
 | semif-qwen3.5-4b | **wired, offline** | Open implementation/weights. SEMIF_ENDPOINT activates a TypeSafe-compatible scale-to-zero endpoint; it is intentionally unset, so there is no GPU bill. |
 | jev-latest | **disabled** | TypeSafe's current master customer agreement forbids making the service available as a standalone service. That rules out this hosted gateway even for a request-scoped user key. |
-| djev | **disabled** | The preview API documents calls and pricing, but no public terms granting proxy/resale were found. It stays off pending written permission. |
+| djev | **wired, offline** | The open `Davipar/djev-dev` runtime is available when `DJEV_ENDPOINT` is set. It stays offline at $0 otherwise. Maisa's hosted API remains unproxied because no public proxy permission was established. |
 | simplejev-demo | **disabled** | The public demo is explicitly limited and directs production use to a Featherless developer account. No proxy grant was found; the demo is not used as gateway capacity. |
 
 The requested “every legitimate provider” rule therefore leaves classifier.dev live today. This is deliberately conservative: a public endpoint is not itself permission to re-publish the service behind another public endpoint.
@@ -67,11 +67,11 @@ Current price observations and the projected 31,680 decisions/hour capacity:
 
 For scale-to-zero, load percentage does not create idle GPU cost; the meaningful number is active compute cost per 1,000. Cold start includes container start and roughly 8 GB of model weights unless cached, so expect tens of seconds to minutes and use asynchronous warm-up/retry behavior.
 
-## djev versus DiffusionGemma
+## djev and DiffusionGemma
 
-djev's weights have not been released; open-sourcing is announced, not available. It cannot be self-hosted today.
+djev is self-hostable through David Villalón's Apache-2.0 `Davipar/djev-dev` runtime. It is a structured, one-step inference method over Google's Apache-2.0 `diffusiongemma-26B-A4B-it` checkpoint and adds no separately trained weights. `djev-spark` is an alternate NVFP4 structured-read runtime for the same model family, not a distinct checkpoint.
 
-The djev-spark/OpenJev wrapper instead serves nvidia/diffusiongemma-26B-A4B-it-NVFP4. Hosting it would be **our DiffusionGemma service, not djev**. Current RunPod on-demand planning prices are H100 PCIe **$2.89/hour** (H100 SXM $3.49), RTX PRO 6000 96 GB **$2.09/hour**, and H200 **$4.59/hour**. Continuous 730-hour months are about **$2,110**, **$1,526**, and **$3,351** respectively, before storage and redundancy.
+The H200 run used a live Lium offer at **$3.00/hour**. Other live planning prices observed for the report are Lium H100 **$2.24/hour**, Lium B200 **$5.50/hour**, and RunPod RTX PRO 6000 **$2.09/hour**. Their always-on 730-hour months are **$2,190**, **$1,635**, **$4,015**, and **$1,526** respectively, before storage and redundancy. Scale-to-zero keeps idle GPU spend at $0.
 
 ## What costs money now
 
@@ -89,6 +89,6 @@ Turning on SemIf needs a choice: RunPod 24 GB serverless ($0.69 active hour, sca
 - Public repository contains the routing logic and provider states.
 - No JevBench ranking changes or promotional edits were made. No X posts were made.
 - Live HTTPS verification: /health returned 200, /models returned the expected states, the real classifier request returned red, and all five disclosure headers were present.
-- Deployment revision: b22d2107efa197d5844083300aa82a893daac74c.
+- Deployment revision: 7a027ca4811aadae084058c240ed168762118821.
 
 Sources checked 21 Sep 2026: TypeSafe MCA, classifier.dev terms/pricing/developers, SimpleJev demo page, djev public docs, RunPod pricing, and live authenticated Lium inventory.
