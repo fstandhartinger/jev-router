@@ -29,17 +29,25 @@ def test_public_pages_and_model_neutrality(client):
 def test_auth_required_and_explicit_model(client):
     assert client.post("/v1/systemone",json={}).status_code==401
     _,key=make_user_key()
-    r=client.post("/v1/systemone",headers={"Authorization":"Bearer "+key},json={"state":"x","questions":{}})
+    q={"q":{"type":"choice","instructions":"Choose","criteria":{"a":"A","b":"B"}}}
+    r=client.post("/v1/systemone",headers={"Authorization":"Bearer "+key},json={"state":"x","questions":q})
     assert r.status_code==400 and r.json()["detail"]["error"]=="model_required"
 
 def test_multimodal_validation(client):
     _,key=make_user_key(); headers={"Authorization":"Bearer "+key}
     image="data:image/png;base64,"+base64.b64encode(b"tiny").decode()
-    payload={"model":"semif-qwen3.5-4b","state":"x","images":[image],"questions":{}}
+    payload={"model":"semif-qwen3.5-4b","state":"x","images":[image],"questions":{"q":{"type":"choice","instructions":"Choose","criteria":{"a":"A","b":"B"}}}}
     r=client.post("/v1/multimodal",headers=headers,json=payload)
     assert r.status_code==400 and r.json()["detail"]["error"]=="model_not_multimodal"
     payload["model"]="djev"; payload["images"]=["https://example.com/a.png"]
     assert client.post("/v1/multimodal",headers=headers,json=payload).status_code==400
+
+def test_typed_contract_validation(client):
+    _,key=make_user_key(); headers={"Authorization":"Bearer "+key}
+    assert client.post("/v1/systemone",headers=headers,json={"model":"classifier-fast","questions":{"q":{"type":"choice","criteria":{"a":None,"b":None}}}}).status_code==400
+    assert client.post("/v1/systemone",headers=headers,json={"model":"classifier-fast","state":"x","questions":{"q":{"type":"unknown"}}}).status_code==400
+    image="data:image/png;base64,"+base64.b64encode(b"tiny").decode()
+    assert client.post("/v1/systemone",headers=headers,json={"model":"djev","state":"x","images":[image],"questions":{"q":{"type":"choice","criteria":{"a":None,"b":None}}}}).status_code==400
 
 def test_key_revocation(client):
     uid,key=make_user_key()
@@ -49,12 +57,27 @@ def test_key_revocation(client):
 
 def test_stripe_signature_and_idempotent_credit(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
-    event={"id":"evt_1","type":"checkout.session.completed","data":{"object":{"id":"cs_1","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}}
+    event={"id":"evt_1","type":"checkout.session.completed","data":{"object":{"id":"cs_1","payment_intent":"pi_1","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}}
     raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
     headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"}
     assert client.post("/webhooks/stripe",content=raw,headers=headers).status_code==200
     assert client.post("/webhooks/stripe",content=raw,headers=headers).json()["duplicate"] is True
     assert app.balance(uid)==10_000_000
+
+    refund={"id":"evt_2","type":"charge.refunded","data":{"object":{"payment_intent":"pi_1","amount_refunded":250}}}
+    raw=json.dumps(refund,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
+    assert client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"}).status_code==200
+    assert app.balance(uid)==7_500_000
+
+def test_out_of_order_stripe_refund_is_applied(client,monkeypatch):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    def send(event):
+        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
+        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    assert send({"id":"evt_early","type":"charge.refunded","data":{"object":{"payment_intent":"pi_late","amount_refunded":250}}}).status_code==200
+    assert app.balance(uid)==0
+    assert send({"id":"evt_checkout","type":"checkout.session.completed","data":{"object":{"id":"cs_late","payment_intent":"pi_late","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}}).status_code==200
+    assert app.balance(uid)==7_500_000
 
 def test_failed_paid_provider_refunds_reservation(client):
     uid,key=make_user_key()
