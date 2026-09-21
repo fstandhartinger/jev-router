@@ -54,6 +54,18 @@ app = FastAPI(title="Jev Router", docs_url=None, redoc_url=None, openapi_url="/o
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=APP_URL.startswith("https://"), max_age=86400 * 14)
 
 @app.middleware("http")
+async def canonical_host(request: Request, call_next):
+    if APP_URL.startswith("https://") and request.url.hostname in {
+        "www.jev-router.com",
+        "jev-router.app.mintapis.com",
+    }:
+        target = APP_URL + request.url.path
+        if request.url.query:
+            target += "?" + request.url.query
+        return RedirectResponse(target, status_code=308)
+    return await call_next(request)
+
+@app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({"X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Permissions-Policy":"camera=(), microphone=(), geolocation=()","Content-Security-Policy":"default-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'self' https://checkout.stripe.com; frame-ancestors 'none'; base-uri 'self'"})
