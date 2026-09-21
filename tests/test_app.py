@@ -1,4 +1,5 @@
-import base64, hashlib, hmac, json, time
+import base64, hashlib, hmac, json, sqlite3, time
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,10 @@ def test_public_pages_and_model_neutrality(client):
     data=client.get("/models").json()
     assert "jev-class uses descending text JevBench" in data["routing_policy"]
     assert next(x for x in data["data"] if x["id"]=="jev-class")["routing_order"]==["classifier-fast"]
-    assert next(x for x in data["data"] if x["id"]=="jev-typesafe")["status"]=="disabled"
+    assert not any(x["id"] in ("jev-typesafe","jev-vercel") for x in data["data"])
+    text=client.get("/models-page").text
+    assert "TypeSafe" not in text and "Vercel" not in text
+    assert "Open decision models" in text
 
 def test_auth_required_and_explicit_model(client):
     assert client.post("/v1/systemone",json={}).status_code==401
@@ -198,3 +202,172 @@ def test_image_meta_uses_separate_image_ranking(client,monkeypatch):
     response=client.post("/v1/multimodal",headers={"Authorization":"Bearer "+key},json=payload)
     assert response.status_code==200
     assert response.headers["X-Jev-Model"]=="decider-2b-vision"
+
+def test_hosting_start_uses_provider_quote_and_charges_first_minute(client,monkeypatch):
+    uid,_=make_user_key()
+    with app.dbconn() as db: db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,1_000_000,"test","seed",app.now_iso()))
+    async def control(method,path,payload=None):
+        if path=="/quote": return {"quote_id":"q1","model":"djev-spark","provider":"lium","provider_microusd_per_minute":10_000,"expires_at":"2999-01-01T00:00:00+00:00"}
+        assert method=="POST" and path=="/instances" and payload["quote_id"]=="q1"
+        return {"id":"provider-1","provider":"lium","provider_microusd_per_minute":10_000,"endpoint":"https://private.invalid"}
+    monkeypatch.setattr(app,"hosting_control",control)
+    monkeypatch.setattr(app,"require_user",lambda request:{"id":uid,"email":"test@example.com"})
+    monkeypatch.setattr(app,"check_csrf",lambda request,value:None)
+    response=client.post("/hosting/start",data={"model":"djev-spark","csrf":"x"},follow_redirects=False)
+    assert response.status_code==303
+    price=11_000
+    assert app.balance(uid)==1_000_000-price
+    with app.dbconn() as db:
+        instance=db.execute("SELECT * FROM hosting_instances").fetchone()
+        assert instance["status"]=="running" and instance["provider_microusd_per_minute"]==10_000 and instance["billed_minutes"]==1
+        assert db.execute("SELECT COUNT(*) n FROM hosting_minute_events").fetchone()["n"]==1
+        assert db.execute("SELECT COUNT(*) n FROM usage_events WHERE provider='hosting:lium'").fetchone()["n"]==1
+
+@pytest.mark.asyncio
+async def test_reaper_charges_minutes_and_stops_at_zero(tmp_path,monkeypatch):
+    monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"hosting.db")); app.ensure_db()
+    with app.dbconn() as db:
+        db.execute("INSERT INTO users(email,name,google_sub,created_at) VALUES(?,?,?,?)",("host@example.com","Host","host-sub",app.now_iso()))
+        uid=db.execute("SELECT id FROM users").fetchone()[0]
+        db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,15_000,"test","seed",app.now_iso()))
+        old=(datetime.now(timezone.utc)-timedelta(minutes=2)).isoformat()
+        db.execute("INSERT INTO hosting_instances(id,user_id,model,provider,provider_instance_id,status,endpoint,price_microusd_per_minute,provider_microusd_per_minute,billed_minutes,started_at,last_billed_at,last_used_at) VALUES(?,?,?,?,?,'running',?,?,?,?,?,?,?)",("i1",uid,"djev-spark","lium","p1","x",12_467,11_334,1,old,old,app.now_iso()))
+    deleted=[]
+    async def control(method,path,payload=None):
+        if method=="GET": return {"instances":[{"id":"p1","managed_by":"jev-router"},{"id":"orphan","managed_by":"jev-router"}]}
+        deleted.append(path); return {}
+    monkeypatch.setattr(app,"hosting_control",control)
+    result=await app.reconcile_hosting()
+    assert result["stopped"]==1 and result["orphans_removed"]==1
+    assert "/instances/orphan" in deleted and "/instances/p1" in deleted
+
+@pytest.mark.asyncio
+async def test_reaper_removes_only_managed_orphans(tmp_path,monkeypatch):
+    monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"orphans.db")); app.ensure_db(); deleted=[]
+    async def control(method,path,payload=None):
+        if method=="GET": return {"instances":[{"id":"ours","managed_by":"jev-router"},{"id":"other","managed_by":"someone-else"}]}
+        deleted.append(path); return {}
+    monkeypatch.setattr(app,"hosting_control",control)
+    assert (await app.reconcile_hosting())["orphans_removed"]==1
+    assert deleted==["/instances/ours"]
+
+@pytest.mark.asyncio
+async def test_reaper_does_not_delete_instance_persisted_during_provider_list(tmp_path,monkeypatch):
+    monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"start-race.db")); app.ensure_db(); deleted=[]
+    async def control(method,path,payload=None):
+        if method=="GET":
+            now=app.now_iso()
+            with app.dbconn() as db:
+                db.execute("INSERT INTO users(email,name,google_sub,created_at) VALUES(?,?,?,?)",("race@example.com","Race","race",now)); uid=db.execute("SELECT id FROM users").fetchone()[0]
+                db.execute("INSERT INTO hosting_instances(id,user_id,model,provider,provider_instance_id,status,price_microusd_per_minute,provider_microusd_per_minute,billed_minutes,started_at,last_billed_at,last_used_at) VALUES(?,?,?,?,?,'running',?,?,?,?,?,?)",("race",uid,"djev-spark","lium","new-pod",100,90,1,now,now,now))
+            return {"instances":[{"id":"new-pod","managed_by":"jev-router"}]}
+        deleted.append(path); return {}
+    monkeypatch.setattr(app,"hosting_control",control)
+    result=await app.reconcile_hosting()
+    assert result["orphans_removed"]==0 and deleted==[]
+    with app.dbconn() as db: assert db.execute("SELECT status FROM hosting_instances WHERE id='race'").fetchone()["status"]=="running"
+
+@pytest.mark.asyncio
+async def test_reaper_preserves_provider_instance_owned_by_unmapped_start(tmp_path,monkeypatch):
+    monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"unmapped-start.db")); app.ensure_db(); now=app.now_iso(); deleted=[]
+    with app.dbconn() as db:
+        db.execute("INSERT INTO users(email,name,google_sub,created_at) VALUES(?,?,?,?)",("owner@example.com","Owner","owner",now)); uid=db.execute("SELECT id FROM users").fetchone()[0]
+        db.execute("INSERT INTO hosting_instances(id,user_id,model,provider,status,price_microusd_per_minute,provider_microusd_per_minute,billed_minutes,started_at,last_billed_at,last_used_at) VALUES(?,?,?,?,'starting',?,?,0,?,?,?)",("start-owner",uid,"djev-spark","lium",100,90,now,now,now))
+    async def control(method,path,payload=None):
+        if method=="GET": return {"instances":[{"id":"new-pod","managed_by":"jev-router","owner":"start-owner"}]}
+        deleted.append(path); return {}
+    monkeypatch.setattr(app,"hosting_control",control)
+    result=await app.reconcile_hosting()
+    assert result["orphans_removed"]==0 and deleted==[]
+    with app.dbconn() as db:
+        db.execute("UPDATE hosting_instances SET provider_instance_id=?,status='running' WHERE id=?",("new-pod","start-owner"))
+        assert db.execute("SELECT provider_instance_id FROM hosting_instances WHERE id='start-owner'").fetchone()[0]=="new-pod"
+
+@pytest.mark.asyncio
+async def test_reaper_empty_verified_list_stops_missing_instance(tmp_path,monkeypatch):
+    monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"missing.db")); app.ensure_db()
+    now=app.now_iso()
+    with app.dbconn() as db:
+        db.execute("INSERT INTO users(email,name,google_sub,created_at) VALUES(?,?,?,?)",("m@example.com","M","m",now)); uid=db.execute("SELECT id FROM users").fetchone()[0]
+        db.execute("INSERT INTO hosting_instances(id,user_id,model,provider,provider_instance_id,status,price_microusd_per_minute,provider_microusd_per_minute,billed_minutes,started_at,last_billed_at,last_used_at) VALUES(?,?,?,?,?,'running',?,?,?,?,?,?)",("i",uid,"djev-spark","lium","gone",100,90,1,now,now,now))
+    async def control(method,path,payload=None): return {"instances":[]}
+    monkeypatch.setattr(app,"hosting_control",control)
+    result=await app.reconcile_hosting(); assert result["provider_verified"] and result["stopped"]==1
+    with app.dbconn() as db: assert db.execute("SELECT status FROM hosting_instances WHERE id='i'").fetchone()["status"]=="stopped"
+
+@pytest.mark.asyncio
+async def test_reaper_provider_failure_neither_charges_nor_stops(tmp_path,monkeypatch):
+    monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"verifyfail.db")); app.ensure_db()
+    async def control(method,path,payload=None): raise RuntimeError("provider unavailable")
+    monkeypatch.setattr(app,"hosting_control",control)
+    result=await app.reconcile_hosting()
+    assert result["provider_verified"] is False and result["charged_minutes"]==0
+
+def test_hosting_runtime_respects_user_cap(tmp_path,monkeypatch):
+    monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"cap.db")); app.ensure_db(); now=app.now_iso()
+    with app.dbconn() as db:
+        db.execute("INSERT INTO users(email,name,google_sub,created_at) VALUES(?,?,?,?)",("c@example.com","C","c",now)); uid=db.execute("SELECT id FROM users").fetchone()[0]
+        db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,10000,"seed","seed",now))
+        db.execute("INSERT INTO account_settings(user_id,daily_spend_cap_microusd) VALUES(?,?)",(uid,1500))
+        db.execute("INSERT INTO hosting_instances(id,user_id,model,provider,status,price_microusd_per_minute,provider_microusd_per_minute,billed_minutes,started_at,last_billed_at,last_used_at) VALUES(?,?,?,?,'running',?,?,0,?,?,?)",("cap",uid,"djev-spark","lium",1000,900,now,now,now))
+    assert app.charge_hosting_minute("cap",1)
+    assert app.charge_hosting_minute("cap",2) is False
+
+def test_live_payments_cannot_be_enabled_by_flag():
+    if app.STRIPE_MODE=="live": assert app.PAYMENTS_ENABLED is False
+
+def test_hosting_rejects_quote_above_displayed_price(client,monkeypatch):
+    uid,_=make_user_key()
+    async def control(method,path,payload=None):
+        return {"quote_id":"expensive","model":"djev-spark","provider":"lium","provider_microusd_per_minute":99_000,"expires_at":"2999-01-01T00:00:00+00:00"}
+    monkeypatch.setattr(app,"hosting_control",control); monkeypatch.setattr(app,"require_user",lambda request:{"id":uid}); monkeypatch.setattr(app,"check_csrf",lambda request,value:None)
+    response=client.post("/hosting/start",data={"model":"djev-spark"})
+    assert response.status_code==409
+    with app.dbconn() as db: assert db.execute("SELECT COUNT(*) n FROM hosting_instances").fetchone()["n"]==0
+
+@pytest.mark.asyncio
+async def test_failed_provider_delete_is_retried(tmp_path,monkeypatch):
+    monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"retry.db")); app.ensure_db(); now=app.now_iso()
+    with app.dbconn() as db:
+        db.execute("INSERT INTO users(email,name,google_sub,created_at) VALUES(?,?,?,?)",("r@example.com","R","r",now)); uid=db.execute("SELECT id FROM users").fetchone()[0]
+        db.execute("INSERT INTO hosting_instances(id,user_id,model,provider,provider_instance_id,status,price_microusd_per_minute,provider_microusd_per_minute,billed_minutes,started_at,last_billed_at,last_used_at) VALUES(?,?,?,?,?,'running',?,?,?,?,?,?)",("retry",uid,"djev-spark","lium","pod",100,90,0,now,now,now))
+        row=db.execute("SELECT * FROM hosting_instances WHERE id='retry'").fetchone()
+    attempts=0
+    async def failing(method,path,payload=None):
+        nonlocal attempts; attempts+=1; raise RuntimeError("temporary")
+    monkeypatch.setattr(app,"hosting_control",failing)
+    with pytest.raises(RuntimeError): await app.stop_hosting_instance(row,"user stop")
+    with app.dbconn() as db: assert db.execute("SELECT status FROM hosting_instances WHERE id='retry'").fetchone()["status"]=="stopping"
+    async def recovered(method,path,payload=None):
+        if method=="GET": return {"instances":[{"id":"pod","managed_by":"jev-router"}]}
+        return {}
+    monkeypatch.setattr(app,"hosting_control",recovered)
+    result=await app.reconcile_hosting(); assert result["stopped"]==1
+    with app.dbconn() as db: assert db.execute("SELECT status FROM hosting_instances WHERE id='retry'").fetchone()["status"]=="stopped"
+
+@pytest.mark.asyncio
+async def test_stopping_instance_missing_from_verified_provider_is_finalized(tmp_path,monkeypatch):
+    monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"lost-response.db")); app.ensure_db(); now=app.now_iso()
+    with app.dbconn() as db:
+        db.execute("INSERT INTO users(email,name,google_sub,created_at) VALUES(?,?,?,?)",("lost@example.com","Lost","lost",now)); uid=db.execute("SELECT id FROM users").fetchone()[0]
+        db.execute("INSERT INTO hosting_instances(id,user_id,model,provider,provider_instance_id,status,price_microusd_per_minute,provider_microusd_per_minute,billed_minutes,started_at,last_billed_at,last_used_at,stop_reason) VALUES(?,?,?,?,?,'stopping',?,?,?,?,?,?,?)",("lost",uid,"djev-spark","lium","already-gone",100,90,0,now,now,now,"user stop"))
+    async def verified_empty(method,path,payload=None):
+        assert method=="GET" and path=="/instances"
+        return {"instances":[]}
+    monkeypatch.setattr(app,"hosting_control",verified_empty)
+    result=await app.reconcile_hosting()
+    assert result["provider_verified"] is True and result["stopped"]==1
+    with app.dbconn() as db:
+        row=db.execute("SELECT status,stopped_at FROM hosting_instances WHERE id='lost'").fetchone()
+        assert row["status"]=="stopped" and row["stopped_at"]
+
+def test_old_hosting_minute_schema_is_migrated(tmp_path,monkeypatch):
+    path=tmp_path/"old-schema.db"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE hosting_minute_events(instance_id TEXT NOT NULL, minute_number INTEGER NOT NULL, user_id INTEGER NOT NULL, price_microusd INTEGER NOT NULL, provider_microusd INTEGER NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(instance_id,minute_number))")
+        db.execute("INSERT INTO hosting_minute_events VALUES(?,?,?,?,?,?)",("old",1,1,100,90,app.now_iso()))
+    monkeypatch.setattr(app,"DB_PATH",str(path)); app.ensure_db()
+    with sqlite3.connect(path) as db:
+        columns={row[1] for row in db.execute("PRAGMA table_info(hosting_minute_events)")}
+        assert "usage_event_id" in columns
+        assert db.execute("SELECT COUNT(*) FROM hosting_minute_events WHERE instance_id='old'").fetchone()[0]==1
