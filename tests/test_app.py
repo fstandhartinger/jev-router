@@ -103,6 +103,28 @@ def test_out_of_order_won_dispute_restores_credit(client,monkeypatch):
     send({"id":"evt_early_won","type":"charge.dispute.closed","data":{"object":{"id":"dp_early","payment_intent":"pi_early","amount":400,"status":"won"}}})
     assert app.balance(uid)==10_000_000
 
+def test_dispute_won_before_checkout_never_debits(client,monkeypatch):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    def send(event):
+        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
+        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send({"id":"evt_dp_first","type":"charge.dispute.created","data":{"object":{"id":"dp_pre_won","payment_intent":"pi_pre_won","amount":400}}})
+    send({"id":"evt_won_first","type":"charge.dispute.closed","data":{"object":{"id":"dp_pre_won","payment_intent":"pi_pre_won","status":"won"}}})
+    send({"id":"evt_checkout_last","type":"checkout.session.completed","data":{"object":{"id":"cs_pre_won","payment_intent":"pi_pre_won","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
+    assert app.balance(uid)==10_000_000
+
+def test_refund_survives_won_dispute_when_both_precede_checkout(client,monkeypatch):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    def send(event):
+        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
+        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send({"id":"evt_pre_ref","type":"charge.refunded","data":{"object":{"payment_intent":"pi_mix","amount_refunded":250}}})
+    send({"id":"evt_pre_dp","type":"charge.dispute.created","data":{"object":{"id":"dp_mix","payment_intent":"pi_mix","amount":400}}})
+    send({"id":"evt_mix_top","type":"checkout.session.completed","data":{"object":{"id":"cs_mix","payment_intent":"pi_mix","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
+    assert app.balance(uid)==3_500_000
+    send({"id":"evt_mix_won","type":"charge.dispute.closed","data":{"object":{"id":"dp_mix","payment_intent":"pi_mix","status":"won"}}})
+    assert app.balance(uid)==7_500_000
+
 def test_stale_reservation_is_reconciled(client):
     uid,_=make_user_key(); old="2000-01-01T00:00:00+00:00"
     with app.dbconn() as db:

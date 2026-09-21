@@ -78,6 +78,8 @@ def ensure_db() -> None:
         CREATE TABLE IF NOT EXISTS rate_windows(api_key_id BIGINT NOT NULL, window TEXT NOT NULL, requests BIGINT NOT NULL, PRIMARY KEY(api_key_id,window));
         CREATE TABLE IF NOT EXISTS stripe_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, user_id BIGINT NOT NULL, microusd BIGINT NOT NULL, status TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS stripe_pending_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd BIGINT NOT NULL);
+        CREATE TABLE IF NOT EXISTS stripe_pending_dispute_closures(dispute_id TEXT PRIMARY KEY, status TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS stripe_refund_totals(payment_intent TEXT PRIMARY KEY, microusd BIGINT NOT NULL);
         """
         with psycopg.connect(DATABASE_URL) as db:
             for statement in ddl.split(";"):
@@ -99,6 +101,8 @@ def ensure_db() -> None:
         CREATE TABLE IF NOT EXISTS rate_windows(api_key_id INTEGER NOT NULL, window TEXT NOT NULL, requests INTEGER NOT NULL, PRIMARY KEY(api_key_id,window));
         CREATE TABLE IF NOT EXISTS stripe_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, user_id INTEGER NOT NULL, microusd INTEGER NOT NULL, status TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS stripe_pending_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS stripe_pending_dispute_closures(dispute_id TEXT PRIMARY KEY, status TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS stripe_refund_totals(payment_intent TEXT PRIMARY KEY, microusd INTEGER NOT NULL);
         """)
 
 class PgCompat:
@@ -333,27 +337,36 @@ async def stripe_webhook(request:Request,stripe_signature:str|None=Header(None))
             db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,cents*10_000,"stripe_topup",obj["id"],now_iso()))
             if obj.get("payment_intent"):
                 pi=obj["payment_intent"]; db.execute("INSERT INTO stripe_payments(payment_intent,user_id,credited_microusd,refunded_microusd,created_at) VALUES(?,?,?,?,?) ON CONFLICT(payment_intent) DO NOTHING",(pi,uid,cents*10_000,0,now_iso()))
-                # Stripe's amount_refunded is cumulative, so multiple out-of-order
-                # notifications must not be summed.
-                pending=db.execute("SELECT COALESCE(MAX(microusd),0) total FROM stripe_pending WHERE payment_intent=?",(pi,)).fetchone()["total"]
-                debit=min(cents*10_000,int(pending))
+                credited=cents*10_000
+                # Refund notifications are cumulative; disputes are separate holds.
+                refund_pending=int(db.execute("SELECT COALESCE(MAX(microusd),0) total FROM stripe_pending WHERE payment_intent=? AND kind='charge.refunded'",(pi,)).fetchone()["total"])
+                refund_debit=min(credited,refund_pending); remaining=credited-refund_debit; dispute_debit=0
+                if refund_pending: db.execute("INSERT INTO stripe_refund_totals(payment_intent,microusd) VALUES(?,?) ON CONFLICT(payment_intent) DO UPDATE SET microusd=excluded.microusd",(pi,refund_pending))
+                for dispute in db.execute("SELECT * FROM stripe_pending_disputes WHERE payment_intent=?",(pi,)).fetchall():
+                    closed=db.execute("SELECT status FROM stripe_pending_dispute_closures WHERE dispute_id=?",(dispute["dispute_id"],)).fetchone()
+                    status="won" if closed and closed["status"]=="won" else "open"
+                    allocated=0 if status=="won" else min(remaining,dispute["microusd"]); remaining-=allocated; dispute_debit+=allocated
+                    db.execute("INSERT INTO stripe_disputes(dispute_id,payment_intent,user_id,microusd,status) VALUES(?,?,?,?,?) ON CONFLICT(dispute_id) DO NOTHING",(dispute["dispute_id"],pi,uid,allocated,status))
+                    db.execute("DELETE FROM stripe_pending_dispute_closures WHERE dispute_id=?",(dispute["dispute_id"],))
+                debit=refund_debit+dispute_debit
                 if debit:
                     db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,-debit,"stripe_pending_refund_or_dispute","pending-"+pi,now_iso()))
                     db.execute("UPDATE stripe_payments SET refunded_microusd=? WHERE payment_intent=?",(debit,pi))
-                    for dispute in db.execute("SELECT * FROM stripe_pending_disputes WHERE payment_intent=?",(pi,)).fetchall():
-                        db.execute("INSERT INTO stripe_disputes(dispute_id,payment_intent,user_id,microusd,status) VALUES(?,?,?,?,?) ON CONFLICT(dispute_id) DO NOTHING",(dispute["dispute_id"],pi,uid,min(debit,dispute["microusd"]),"open"))
-                    db.execute("DELETE FROM stripe_pending_disputes WHERE payment_intent=?",(pi,))
+                db.execute("DELETE FROM stripe_pending_disputes WHERE payment_intent=?",(pi,))
                 db.execute("DELETE FROM stripe_pending WHERE payment_intent=?",(pi,))
         if event["type"] in ("charge.refunded","charge.dispute.created"):
             payment_intent=obj.get("payment_intent")
             payment=db.execute("SELECT * FROM stripe_payments WHERE payment_intent=?",(payment_intent,)).fetchone() if payment_intent else None
             target_amount=int(obj.get("amount_refunded") or obj.get("amount") or 0)*10_000
             if payment:
-                target=min(payment["credited_microusd"],target_amount)
-                delta=max(0,target-payment["refunded_microusd"])
+                if event["type"]=="charge.refunded":
+                    previous=db.execute("SELECT microusd FROM stripe_refund_totals WHERE payment_intent=?",(payment_intent,)).fetchone(); previous=int(previous["microusd"]) if previous else 0
+                    delta=min(max(0,target_amount-previous),max(0,payment["credited_microusd"]-payment["refunded_microusd"]))
+                    db.execute("INSERT INTO stripe_refund_totals(payment_intent,microusd) VALUES(?,?) ON CONFLICT(payment_intent) DO UPDATE SET microusd=excluded.microusd",(payment_intent,max(previous,target_amount)))
+                else: delta=min(target_amount,max(0,payment["credited_microusd"]-payment["refunded_microusd"]))
                 if delta:
                     db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(payment["user_id"],-delta,"stripe_refund_or_dispute",event["id"]+"-debit",now_iso()))
-                    db.execute("UPDATE stripe_payments SET refunded_microusd=? WHERE payment_intent=?",(target,payment_intent))
+                    db.execute("UPDATE stripe_payments SET refunded_microusd=refunded_microusd+? WHERE payment_intent=?",(delta,payment_intent))
                     if event["type"]=="charge.dispute.created":
                         db.execute("INSERT INTO stripe_disputes(dispute_id,payment_intent,user_id,microusd,status) VALUES(?,?,?,?,?) ON CONFLICT(dispute_id) DO NOTHING",(obj.get("id",event["id"]),payment_intent,payment["user_id"],delta,"open"))
             elif payment_intent and target_amount:
@@ -366,6 +379,8 @@ async def stripe_webhook(request:Request,stripe_signature:str|None=Header(None))
                 db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(dispute["user_id"],dispute["microusd"],"stripe_dispute_won",event["id"]+"-credit",now_iso()))
                 db.execute("UPDATE stripe_payments SET refunded_microusd=CASE WHEN refunded_microusd>? THEN refunded_microusd-? ELSE 0 END WHERE payment_intent=?",(dispute["microusd"],dispute["microusd"],dispute["payment_intent"]))
                 db.execute("UPDATE stripe_disputes SET status='won' WHERE dispute_id=?",(obj.get("id"),))
+            elif obj.get("id"):
+                db.execute("INSERT INTO stripe_pending_dispute_closures(dispute_id,status) VALUES(?,?) ON CONFLICT(dispute_id) DO UPDATE SET status=excluded.status",(obj["id"],"won"))
         db.execute("INSERT INTO stripe_events(id,created_at) VALUES(?,?)",(event["id"],now_iso()))
     return {"received":True}
 
