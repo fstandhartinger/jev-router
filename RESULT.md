@@ -1,5 +1,21 @@
 # Jev Router — implementation report (21 September 2026)
 
+## Djev self-hosting correction (21 September 2026)
+
+`Davipar/djev-dev` is Maisa engineer David Villalón's Apache-2.0 self-hostable Djev inference runtime over Google's Apache-2.0 `diffusiongemma-26B-A4B-it` checkpoint. It adds no model weights of its own. The earlier statement that djev could not be self-hosted was wrong.
+
+The gateway now includes `djev` as a self-hosted provider. It is intentionally **offline** and costs $0 while `DJEV_ENDPOINT` is unset; setting that endpoint activates the route. The hosted Maisa API remains unproxied because no public proxy permission was established. No production GPU is running.
+
+One H200 BF16 measurement with the stock runtime and an HTTP admission limit raised from 8 to 32 measured:
+
+| concurrency | throughput | p50 | p95 |
+|---:|---:|---:|---:|
+| 1 | 24.8 decisions/s | 0.040 s | 0.041 s |
+| 4 | 58.8 decisions/s | 0.067 s | 0.072 s |
+| 16 | 110.1 decisions/s | 0.141 s | 0.168 s |
+
+The BF16 checkpoint is 48.1 GiB on disk and the runtime reported about 49.2 GiB consumed before KV cache. It fits B200, H200, H100 80 GB, and RTX PRO 6000 96 GB. NVFP4 is optional on those cards, not required for fit; it is the practical route for smaller-memory Blackwell systems such as DGX Spark.
+
 ## Outcome
 
 - Public API: https://jev-router.app.mintapis.com
@@ -72,6 +88,7 @@ Turning on SemIf needs a choice: RunPod 24 GB serverless ($0.69 active hour, sca
 - Live-format upstream smoke test: classifier.dev answered the TypeSafe-shaped choice request correctly.
 - Public repository contains the routing logic and provider states.
 - No JevBench ranking changes or promotional edits were made. No X posts were made.
-- Deployment revision: 743d69ca329aa7939a33ad6b33a0377cb51c3d3c.
+- Live HTTPS verification: /health returned 200, /models returned the expected states, the real classifier request returned red, and all five disclosure headers were present.
+- Deployment revision: b22d2107efa197d5844083300aa82a893daac74c.
 
 Sources checked 21 Sep 2026: TypeSafe MCA, classifier.dev terms/pricing/developers, SimpleJev demo page, djev public docs, RunPod pricing, and live authenticated Lium inventory.

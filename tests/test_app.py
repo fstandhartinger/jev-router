@@ -1,4 +1,6 @@
 import subprocess,time,urllib.request,json
+from unittest.mock import patch
+import app
 def test_live_contract():
  p=subprocess.Popen(["python3","app.py"],env={"PORT":"18080"})
  try:
@@ -8,3 +10,9 @@ def test_live_contract():
   try: urllib.request.urlopen(req)
   except urllib.error.HTTPError as e: assert e.code==400 and b"model_required" in e.read()
  finally: p.terminate(); p.wait()
+
+def test_djev_offline_without_endpoint():
+ with patch.dict(app.os.environ, {}, clear=True):
+  try: app.call_djev({"state":"x","questions":{}})
+  except RuntimeError as error: assert "offline" in str(error)
+  else: raise AssertionError("offline djev must refuse calls")

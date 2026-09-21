@@ -6,7 +6,7 @@ MODELS={
  "classifier-fast":{"provider":"classifier.dev","status":"live","score":84.8,"cost":"$0 within limits","terms":"Permitted within published limits; outputs may be used."},
  "semif-qwen3.5-4b":{"provider":"self-hosted","status":"offline","score":74.7,"cost":"infrastructure pass-through","terms":"Open weights; serverless endpoint not switched on."},
  "jev-latest":{"provider":"TypeSafe","status":"disabled","score":75.4,"cost":"provider price; no markup","terms":"Disabled: TypeSafe MCA forbids offering it as a standalone service."},
- "djev":{"provider":"Maisa","status":"disabled","score":74.3,"cost":"provider price; no markup","terms":"Disabled pending explicit proxy permission; weights are not released."},
+ "djev":{"provider":"self-hosted djev-dev","status":"offline" if not os.getenv("DJEV_ENDPOINT") else "live","score":74.3,"cost":"infrastructure pass-through; H200 measured at $3.00/h","terms":"Apache-2.0 runtime over Google's Apache-2.0 DiffusionGemma weights; no djev-specific weights. DJEV_ENDPOINT activates it."},
  "simplejev-demo":{"provider":"Featherless","status":"disabled","score":None,"cost":"demo","terms":"Disabled: demo directs production users to a developer account; no proxy permission found."}}
 seen=defaultdict(deque); window=int(os.getenv("RATE_WINDOW_SECONDS","60")); ip_limit=int(os.getenv("IP_RATE_LIMIT","60")); key_limit=int(os.getenv("KEY_RATE_LIMIT","120"))
 def limited(bucket,limit):
@@ -29,6 +29,15 @@ def call_classifier(state,questions):
   elif typ=="choice": answers[name]={"type":"choice","choice":item["label"],"confidence":item.get("confidence"),"probabilities":scores}
   else: answers[name]={"type":"score","score":int(item["label"]),"probabilities":scores}
  return {"model":"classifier-fast","answers":answers,"usage":{"estimated_cost_usd":0}}
+def call_djev(body):
+ endpoint=os.getenv("DJEV_ENDPOINT","").rstrip("/")
+ if not endpoint: raise RuntimeError("self-hosted djev-dev is offline; DJEV_ENDPOINT is unset")
+ payload={k:v for k,v in body.items() if k not in ("model","fallback")}
+ data=json.dumps(payload).encode()
+ headers={"content-type":"application/json"}
+ if os.getenv("DJEV_API_KEY"): headers["authorization"]="Bearer "+os.environ["DJEV_API_KEY"]
+ req=urllib.request.Request(endpoint+"/v1/request",data=data,headers=headers,method="POST")
+ with urllib.request.urlopen(req,timeout=120) as r:return json.load(r)
 HOME="""<!doctype html><meta name=viewport content='width=device-width'><title>Jev Router</title><style>body{font:16px system-ui;max-width:760px;margin:60px auto;padding:0 20px;line-height:1.55}pre{background:#f3f3f3;padding:16px;overflow:auto}</style><h1>Jev Router</h1><p>One neutral, TypeSafe-compatible endpoint for Jev-class decision systems. Run by the authors of JevBench / Benchmark Heaven.</p><p><b>No model is selected for you.</b> Name a model or explicit fallback list. No third-party markup. Request content is not logged.</p><pre>POST /v1/systemone
 {"model":"classifier-fast","state":"...","questions":{"decision":{"type":"choice","instructions":"...","criteria":{"a":null,"b":null}}}}</pre><p><a href=/models>Models and status</a> · <a href=/docs>API docs</a> · <a href=https://github.com/fstandhartinger/jev-router>MIT source</a></p><p><a href=/terms>Terms</a> · <a href=/impressum>Impressum & privacy</a></p>"""
 class H(BaseHTTPRequestHandler):
@@ -62,9 +71,11 @@ class H(BaseHTTPRequestHandler):
   for model in choices:
    started=time.perf_counter()
    try:
-    if model!="classifier-fast":raise RuntimeError(MODELS.get(model,{}).get("terms","unknown model"))
-    out=call_classifier(body.get("state"),body.get("questions") or {}); ms=round((time.perf_counter()-started)*1000,1)
-    return self.send(200,out,{"X-Jev-Provider":"classifier.dev","X-Jev-Model":model,"X-Jev-Latency-Ms":ms,"X-Jev-Cost-Usd":"0","X-Jev-No-Markup":"true"})
+    if model=="classifier-fast": out=call_classifier(body.get("state"),body.get("questions") or {}); provider="classifier.dev"; cost="0"
+    elif model=="djev": out=call_djev(body); provider="self-hosted djev-dev"; cost="infrastructure-pass-through"
+    else: raise RuntimeError(MODELS.get(model,{}).get("terms","unknown model"))
+    ms=round((time.perf_counter()-started)*1000,1)
+    return self.send(200,out,{"X-Jev-Provider":provider,"X-Jev-Model":model,"X-Jev-Latency-Ms":ms,"X-Jev-Cost-Usd":cost,"X-Jev-No-Markup":"true"})
    except Exception as e: errors.append({"model":model,"error":str(e)[:160]})
   self.send(502,{"error":"all_providers_failed","attempts":errors})
 if __name__=="__main__": ThreadingHTTPServer(("0.0.0.0",int(os.getenv("PORT","8080"))),H).serve_forever()
