@@ -5,6 +5,7 @@ benchmark score. Request bodies (including images) are never logged or stored.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -76,6 +77,7 @@ def ensure_db() -> None:
         CREATE TABLE IF NOT EXISTS spend_reservations(ref TEXT PRIMARY KEY, user_id BIGINT NOT NULL, microusd BIGINT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS rate_windows(api_key_id BIGINT NOT NULL, window TEXT NOT NULL, requests BIGINT NOT NULL, PRIMARY KEY(api_key_id,window));
         CREATE TABLE IF NOT EXISTS stripe_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, user_id BIGINT NOT NULL, microusd BIGINT NOT NULL, status TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS stripe_pending_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd BIGINT NOT NULL);
         """
         with psycopg.connect(DATABASE_URL) as db:
             for statement in ddl.split(";"):
@@ -96,6 +98,7 @@ def ensure_db() -> None:
         CREATE TABLE IF NOT EXISTS spend_reservations(ref TEXT PRIMARY KEY, user_id INTEGER NOT NULL, microusd INTEGER NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS rate_windows(api_key_id INTEGER NOT NULL, window TEXT NOT NULL, requests INTEGER NOT NULL, PRIMARY KEY(api_key_id,window));
         CREATE TABLE IF NOT EXISTS stripe_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, user_id INTEGER NOT NULL, microusd INTEGER NOT NULL, status TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS stripe_pending_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd INTEGER NOT NULL);
         """)
 
 class PgCompat:
@@ -171,7 +174,8 @@ def page(title: str, body: str, user=None) -> HTMLResponse:
     return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Neutral infrastructure for explicit Jev-class decision model routing."><title>{esc(title)} · Jev Router</title><style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a></footer></body></html>''')
 
 @app.on_event("startup")
-def startup(): ensure_db()
+def startup():
+    ensure_db(); reconcile_stale_reservations()
 
 @app.get("/health")
 def health(): return {"ok": True, "stripe_mode": STRIPE_MODE}
@@ -336,6 +340,9 @@ async def stripe_webhook(request:Request,stripe_signature:str|None=Header(None))
                 if debit:
                     db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,-debit,"stripe_pending_refund_or_dispute","pending-"+pi,now_iso()))
                     db.execute("UPDATE stripe_payments SET refunded_microusd=? WHERE payment_intent=?",(debit,pi))
+                    for dispute in db.execute("SELECT * FROM stripe_pending_disputes WHERE payment_intent=?",(pi,)).fetchall():
+                        db.execute("INSERT INTO stripe_disputes(dispute_id,payment_intent,user_id,microusd,status) VALUES(?,?,?,?,?) ON CONFLICT(dispute_id) DO NOTHING",(dispute["dispute_id"],pi,uid,min(debit,dispute["microusd"]),"open"))
+                    db.execute("DELETE FROM stripe_pending_disputes WHERE payment_intent=?",(pi,))
                 db.execute("DELETE FROM stripe_pending WHERE payment_intent=?",(pi,))
         if event["type"] in ("charge.refunded","charge.dispute.created"):
             payment_intent=obj.get("payment_intent")
@@ -351,11 +358,13 @@ async def stripe_webhook(request:Request,stripe_signature:str|None=Header(None))
                         db.execute("INSERT INTO stripe_disputes(dispute_id,payment_intent,user_id,microusd,status) VALUES(?,?,?,?,?) ON CONFLICT(dispute_id) DO NOTHING",(obj.get("id",event["id"]),payment_intent,payment["user_id"],delta,"open"))
             elif payment_intent and target_amount:
                 db.execute("INSERT INTO stripe_pending(id,payment_intent,microusd,kind,created_at) VALUES(?,?,?,?,?)",(event["id"],payment_intent,target_amount,event["type"],now_iso()))
+                if event["type"]=="charge.dispute.created":
+                    db.execute("INSERT INTO stripe_pending_disputes(dispute_id,payment_intent,microusd) VALUES(?,?,?) ON CONFLICT(dispute_id) DO NOTHING",(obj.get("id",event["id"]),payment_intent,target_amount))
         if event["type"]=="charge.dispute.closed" and obj.get("status")=="won":
             dispute=db.execute("SELECT * FROM stripe_disputes WHERE dispute_id=?",(obj.get("id"),)).fetchone()
             if dispute and dispute["status"]=="open":
                 db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(dispute["user_id"],dispute["microusd"],"stripe_dispute_won",event["id"]+"-credit",now_iso()))
-                db.execute("UPDATE stripe_payments SET refunded_microusd=MAX(0,refunded_microusd-?) WHERE payment_intent=?",(dispute["microusd"],dispute["payment_intent"]))
+                db.execute("UPDATE stripe_payments SET refunded_microusd=CASE WHEN refunded_microusd>? THEN refunded_microusd-? ELSE 0 END WHERE payment_intent=?",(dispute["microusd"],dispute["microusd"],dispute["payment_intent"]))
                 db.execute("UPDATE stripe_disputes SET status='won' WHERE dispute_id=?",(obj.get("id"),))
         db.execute("INSERT INTO stripe_events(id,created_at) VALUES(?,?)",(event["id"],now_iso()))
     return {"received":True}
@@ -423,6 +432,7 @@ async def call_model(model:str,body:dict,request:Request):
 
 def reserve_credit(user_id:int, microusd:int, ref:str) -> None:
     if not microusd:return
+    reconcile_stale_reservations()
     today=datetime.now(timezone.utc).date().isoformat()
     with dbconn() as db:
         if DATABASE_URL:
@@ -444,6 +454,17 @@ def refund_reservation(user_id:int, microusd:int, ref:str) -> None:
         db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(user_id,microusd,"failed_request_refund","refund-"+ref,now_iso()))
         db.execute("DELETE FROM spend_reservations WHERE ref=?",(ref,))
 
+def reconcile_stale_reservations(max_age_seconds:int=600) -> int:
+    cutoff=datetime.fromtimestamp(time.time()-max_age_seconds,timezone.utc).isoformat(); recovered=0
+    with dbconn() as db:
+        if DATABASE_URL: db.execute("SELECT pg_advisory_xact_lock(?)",(9_876_543,))
+        else: db.execute("BEGIN IMMEDIATE")
+        rows=db.execute("SELECT * FROM spend_reservations WHERE created_at<?",(cutoff,)).fetchall()
+        for row in rows:
+            db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?) ON CONFLICT(ref) DO NOTHING",(row["user_id"],row["microusd"],"stale_request_refund","refund-"+row["ref"],now_iso()))
+            db.execute("DELETE FROM spend_reservations WHERE ref=?",(row["ref"],)); recovered+=1
+    return recovered
+
 async def decide(request:Request,multimodal=False):
     if int(request.headers.get("content-length","0") or 0)>MAX_BODY: raise HTTPException(413,"Request too large")
     user=api_user(request.headers.get("authorization")); enforce_rate_limit(user["key_id"]); body=await request.json(); choices=validate_body(body,multimodal); errors=[]
@@ -458,6 +479,8 @@ async def decide(request:Request,multimodal=False):
                 db.execute("DELETE FROM spend_reservations WHERE ref=?",(reservation,))
             return JSONResponse(out,headers={"X-Jev-Provider":info["provider"],"X-Jev-Model":model,"X-Jev-Latency-Ms":str(ms),"X-Jev-Cost-Usd":f"{microusd/1_000_000:.6f}","X-Jev-No-Markup":"true" if info["billing"].startswith("third-party") else "not-applicable","Cache-Control":"no-store"})
         except HTTPException: raise
+        except asyncio.CancelledError:
+            refund_reservation(user["id"],microusd,reservation); raise
         except Exception as e:
             refund_reservation(user["id"],microusd,reservation)
             errors.append({"model":model,"error":str(e)[:160]})
