@@ -92,6 +92,18 @@ def test_won_dispute_restores_credit(client,monkeypatch):
     send({"id":"evt_won","type":"charge.dispute.closed","data":{"object":{"id":"dp_1","payment_intent":"pi_d","amount":400,"status":"won"}}})
     assert app.balance(uid)==10_000_000
 
+def test_full_refund_and_won_dispute_cannot_restore_refunded_credit(client,monkeypatch):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    def send(event):
+        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
+        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send({"id":"evt_overlap_top","type":"checkout.session.completed","data":{"object":{"id":"cs_overlap","payment_intent":"pi_overlap","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
+    send({"id":"evt_overlap_open","type":"charge.dispute.created","data":{"object":{"id":"dp_overlap","payment_intent":"pi_overlap","amount":400}}})
+    send({"id":"evt_overlap_refund","type":"charge.refunded","data":{"object":{"payment_intent":"pi_overlap","amount_refunded":1000}}})
+    assert app.balance(uid)==-4_000_000
+    send({"id":"evt_overlap_won","type":"charge.dispute.closed","data":{"object":{"id":"dp_overlap","payment_intent":"pi_overlap","amount":400,"status":"won"}}})
+    assert app.balance(uid)==0
+
 def test_out_of_order_won_dispute_restores_credit(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
     def send(event):
