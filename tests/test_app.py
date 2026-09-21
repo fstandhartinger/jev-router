@@ -8,7 +8,6 @@ import app
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"test.db"))
-    app.rate_buckets.clear()
     with TestClient(app.app) as c: yield c
 
 def make_user_key():
@@ -46,6 +45,9 @@ def test_typed_contract_validation(client):
     _,key=make_user_key(); headers={"Authorization":"Bearer "+key}
     assert client.post("/v1/systemone",headers=headers,json={"model":"classifier-fast","questions":{"q":{"type":"choice","criteria":{"a":None,"b":None}}}}).status_code==400
     assert client.post("/v1/systemone",headers=headers,json={"model":"classifier-fast","state":"x","questions":{"q":{"type":"unknown"}}}).status_code==400
+    assert client.post("/v1/systemone",headers=headers,json={"model":"classifier-fast","fallback":"djev","state":"x","questions":{"q":{"type":"noul"}}}).status_code==400
+    assert client.post("/v1/systemone",headers=headers,json={"model":"classifier-fast","state":"x","questions":{"q":{"type":"choice","criteria":["a","b"]}}}).status_code==400
+    assert client.post("/v1/systemone",headers=headers,json={"model":"classifier-fast","state":"x","questions":{"q":{"type":"score","criteria":["low","high"]}}}).status_code==400
     image="data:image/png;base64,"+base64.b64encode(b"tiny").decode()
     assert client.post("/v1/systemone",headers=headers,json={"model":"djev","state":"x","images":[image],"questions":{"q":{"type":"choice","criteria":{"a":None,"b":None}}}}).status_code==400
 
@@ -78,6 +80,17 @@ def test_out_of_order_stripe_refund_is_applied(client,monkeypatch):
     assert app.balance(uid)==0
     assert send({"id":"evt_checkout","type":"checkout.session.completed","data":{"object":{"id":"cs_late","payment_intent":"pi_late","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}}).status_code==200
     assert app.balance(uid)==7_500_000
+
+def test_won_dispute_restores_credit(client,monkeypatch):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    def send(event):
+        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
+        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send({"id":"evt_top","type":"checkout.session.completed","data":{"object":{"id":"cs_top","payment_intent":"pi_d","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
+    send({"id":"evt_open","type":"charge.dispute.created","data":{"object":{"id":"dp_1","payment_intent":"pi_d","amount":400}}})
+    assert app.balance(uid)==6_000_000
+    send({"id":"evt_won","type":"charge.dispute.closed","data":{"object":{"id":"dp_1","payment_intent":"pi_d","amount":400,"status":"won"}}})
+    assert app.balance(uid)==10_000_000
 
 def test_failed_paid_provider_refunds_reservation(client):
     uid,key=make_user_key()

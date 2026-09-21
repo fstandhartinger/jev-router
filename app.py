@@ -15,7 +15,6 @@ import secrets
 import sqlite3
 import time
 import urllib.parse
-from collections import defaultdict, deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,7 +51,6 @@ MODELS: dict[str, dict[str, Any]] = {
 
 app = FastAPI(title="Jev Router", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=APP_URL.startswith("https://"), max_age=86400 * 14)
-rate_buckets: dict[int, deque[float]] = defaultdict(deque)
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
@@ -75,6 +73,9 @@ def ensure_db() -> None:
         CREATE TABLE IF NOT EXISTS stripe_payments(payment_intent TEXT PRIMARY KEY, user_id BIGINT NOT NULL, credited_microusd BIGINT NOT NULL, refunded_microusd BIGINT NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS stripe_pending(id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd BIGINT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS account_settings(user_id BIGINT PRIMARY KEY, daily_spend_cap_microusd BIGINT NOT NULL);
+        CREATE TABLE IF NOT EXISTS spend_reservations(ref TEXT PRIMARY KEY, user_id BIGINT NOT NULL, microusd BIGINT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS rate_windows(api_key_id BIGINT NOT NULL, window TEXT NOT NULL, requests BIGINT NOT NULL, PRIMARY KEY(api_key_id,window));
+        CREATE TABLE IF NOT EXISTS stripe_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, user_id BIGINT NOT NULL, microusd BIGINT NOT NULL, status TEXT NOT NULL);
         """
         with psycopg.connect(DATABASE_URL) as db:
             for statement in ddl.split(";"):
@@ -92,6 +93,9 @@ def ensure_db() -> None:
         CREATE TABLE IF NOT EXISTS stripe_payments(payment_intent TEXT PRIMARY KEY, user_id INTEGER NOT NULL, credited_microusd INTEGER NOT NULL, refunded_microusd INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS stripe_pending(id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd INTEGER NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS account_settings(user_id INTEGER PRIMARY KEY, daily_spend_cap_microusd INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS spend_reservations(ref TEXT PRIMARY KEY, user_id INTEGER NOT NULL, microusd INTEGER NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS rate_windows(api_key_id INTEGER NOT NULL, window TEXT NOT NULL, requests INTEGER NOT NULL, PRIMARY KEY(api_key_id,window));
+        CREATE TABLE IF NOT EXISTS stripe_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, user_id INTEGER NOT NULL, microusd INTEGER NOT NULL, status TEXT NOT NULL);
         """)
 
 class PgCompat:
@@ -147,13 +151,12 @@ def api_user(authorization: str | None):
     return row
 
 def enforce_rate_limit(key_id: int) -> None:
-    now=time.monotonic(); q=rate_buckets[key_id]
-    while q and q[0] < now-60: q.popleft()
-    if len(q)>=120: raise HTTPException(429,"API key rate limit exceeded",headers={"Retry-After":"60"})
-    q.append(now)
-    if len(rate_buckets)>10_000:
-        for k in list(rate_buckets)[:1000]:
-            if not rate_buckets[k] or rate_buckets[k][-1] < now-60: rate_buckets.pop(k,None)
+    window=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
+    with dbconn() as db:
+        db.execute("SELECT pg_advisory_xact_lock(?)",(key_id,)) if DATABASE_URL else db.execute("BEGIN IMMEDIATE")
+        row=db.execute("SELECT requests FROM rate_windows WHERE api_key_id=? AND window=?",(key_id,window)).fetchone()
+        if row and int(row["requests"])>=120: raise HTTPException(429,"API key rate limit exceeded",headers={"Retry-After":"60"})
+        db.execute("INSERT INTO rate_windows(api_key_id,window,requests) VALUES(?,?,1) ON CONFLICT(api_key_id,window) DO UPDATE SET requests=rate_windows.requests+1",(key_id,window))
 
 def esc(value: Any) -> str:
     import html
@@ -176,7 +179,7 @@ def health(): return {"ok": True, "stripe_mode": STRIPE_MODE}
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     user=current_user(request)
-    return page("Decision-model infrastructure", '''<section class="hero"><div class="eyebrow">Decision infrastructure, without hidden routing</div><h1>One API for Jev-class decision models.</h1><p class="lead">Choose the model yourself, or provide an ordered fallback list. Text and image decisions use the same typed answer contract. Benchmarks inform; they never route.</p><div class="actions"><a class="button primary" href="/docs">Read the API docs</a><a class="button" href="/models-page">Compare models</a></div></section><section class="grid"><div class="card"><h3>Explicit by design</h3><p class="muted">No default model and no ranking-based selection. Every response names the provider and model.</p></div><div class="card"><h3>Neutral economics</h3><p class="muted">No markup on third-party BYOK traffic. Self-hosted prices show a small infrastructure margin.</p></div><div class="card"><h3>Privacy bounded</h3><p class="muted">We do not log or retain request bodies. Your selected provider receives the request.</p></div></section>''', user)
+    return page("Decision-model infrastructure", '''<section class="hero"><div class="eyebrow">Decision infrastructure, without hidden routing</div><h1>One API for Jev-class decision models.</h1><p class="lead">Choose the model yourself, or provide an ordered fallback list. Text and image decisions use the same typed answer contract. Benchmarks inform; they never route.</p><div class="actions"><a class="button primary" href="/docs">Read the API docs</a><a class="button" href="/models-page">Compare models</a></div></section><section class="grid"><div class="card"><h3>Explicit by design</h3><p class="muted">No default model and no ranking-based selection. Every response names the provider and model.</p></div><div class="card"><h3>Neutral economics</h3><p class="muted">Self-hosted prices disclose a small infrastructure margin. Third-party routes remain disabled until written permission exists.</p></div><div class="card"><h3>Privacy bounded</h3><p class="muted">We do not log or retain request bodies. Your selected provider receives the request.</p></div></section>''', user)
 
 @app.get("/models")
 def models(): return {"object":"list","data":[{"id":k,**v} for k,v in MODELS.items()],"neutrality":"No default model. Benchmark fields are informational and never used for routing."}
@@ -289,7 +292,7 @@ def usage_page(request:Request):
     u=require_user(request)
     with dbconn() as db: rows=db.execute("SELECT created_at,model,provider,microusd,latency_ms FROM usage_events WHERE user_id=? ORDER BY id DESC LIMIT 200",(u["id"],)).fetchall()
     body="".join(f'<tr><td>{esc(r["created_at"][:19])}</td><td>{esc(r["model"])}</td><td>{esc(r["provider"])}</td><td>${r["microusd"]/1_000_000:.6f}</td><td>{r["latency_ms"]:.0f} ms</td></tr>' for r in rows) or '<tr><td colspan=5>No usage yet.</td></tr>'
-    return page("Usage",f'<h1 style="font-size:52px">Usage</h1><p class="lead">Balance: ${balance(u["id"])/1_000_000:.2f}</p><table><tr><th>Time (UTC)</th><th>Model</th><th>Provider</th><th>Charged</th><th>Latency</th></tr>{body}</table>',u)
+    return page("Usage",f'<h1 style="font-size:52px">Usage</h1><p class="lead">Balance: ${balance(u["id"])/1_000_000:.2f}</p><div class="table-wrap"><table><thead><tr><th scope="col">Time (UTC)</th><th scope="col">Model</th><th scope="col">Provider</th><th scope="col">Charged</th><th scope="col">Latency</th></tr></thead><tbody>{body}</tbody></table></div>',u)
 
 @app.post("/billing/checkout")
 async def checkout(request:Request):
@@ -344,8 +347,16 @@ async def stripe_webhook(request:Request,stripe_signature:str|None=Header(None))
                 if delta:
                     db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(payment["user_id"],-delta,"stripe_refund_or_dispute",event["id"]+"-debit",now_iso()))
                     db.execute("UPDATE stripe_payments SET refunded_microusd=? WHERE payment_intent=?",(target,payment_intent))
+                    if event["type"]=="charge.dispute.created":
+                        db.execute("INSERT INTO stripe_disputes(dispute_id,payment_intent,user_id,microusd,status) VALUES(?,?,?,?,?) ON CONFLICT(dispute_id) DO NOTHING",(obj.get("id",event["id"]),payment_intent,payment["user_id"],delta,"open"))
             elif payment_intent and target_amount:
                 db.execute("INSERT INTO stripe_pending(id,payment_intent,microusd,kind,created_at) VALUES(?,?,?,?,?)",(event["id"],payment_intent,target_amount,event["type"],now_iso()))
+        if event["type"]=="charge.dispute.closed" and obj.get("status")=="won":
+            dispute=db.execute("SELECT * FROM stripe_disputes WHERE dispute_id=?",(obj.get("id"),)).fetchone()
+            if dispute and dispute["status"]=="open":
+                db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(dispute["user_id"],dispute["microusd"],"stripe_dispute_won",event["id"]+"-credit",now_iso()))
+                db.execute("UPDATE stripe_payments SET refunded_microusd=MAX(0,refunded_microusd-?) WHERE payment_intent=?",(dispute["microusd"],dispute["payment_intent"]))
+                db.execute("UPDATE stripe_disputes SET status='won' WHERE dispute_id=?",(obj.get("id"),))
         db.execute("INSERT INTO stripe_events(id,created_at) VALUES(?,?)",(event["id"],now_iso()))
     return {"received":True}
 
@@ -360,12 +371,18 @@ def validate_body(body:dict,multimodal:bool):
         if typ not in ("choice","noul","score"): raise HTTPException(400,f"Unsupported question type for {name}")
         if "instructions" in q and not isinstance(q["instructions"],str): raise HTTPException(400,f"instructions must be text for {name}")
         criteria=q.get("criteria")
-        if typ in ("choice","score") and (not isinstance(criteria,(dict,list)) or len(criteria)<2): raise HTTPException(400,f"{name} requires at least two criteria")
-    choices=([body["model"]] if body.get("model") else [])+(body.get("fallback") or [])
+        if typ=="choice" and (not isinstance(criteria,dict) or len(criteria)<2): raise HTTPException(400,f"{name} choice requires a criteria object with at least two options")
+        if typ=="score" and (not isinstance(criteria,list) or len(criteria)<2): raise HTTPException(400,f"{name} score requires a criteria list with at least two levels")
+    fallback=body.get("fallback",[])
+    if not isinstance(fallback,list) or any(not isinstance(x,str) for x in fallback): raise HTTPException(400,"fallback must be a list of model IDs")
+    if body.get("model") is not None and not isinstance(body.get("model"),str): raise HTTPException(400,"model must be a model ID")
+    choices=([body["model"]] if body.get("model") else [])+fallback
     if not choices: raise HTTPException(400,{"error":"model_required","options":list(MODELS)})
     if len(choices)!=len(set(choices)): raise HTTPException(400,"Duplicate models in route")
     unknown=[m for m in choices if m not in MODELS]
     if unknown: raise HTTPException(400,{"error":"unknown_model","models":unknown})
+    if "classifier-fast" in choices and any(q.get("type")=="score" for q in questions.values()):
+        raise HTTPException(400,"classifier-fast does not support score questions")
     images=body.get("images") or []
     if multimodal and not images: raise HTTPException(400,"images are required")
     if not multimodal and images: raise HTTPException(400,"Use /v1/multimodal for image requests")
@@ -404,43 +421,41 @@ async def call_model(model:str,body:dict,request:Request):
     token=os.getenv({"semif-qwen3.5-4b":"SEMIF_API_KEY","djev":"DJEV_API_KEY","decider-2b-vision":"DECIDER_API_KEY","laya-421m":"LAYA_API_KEY"}[model],"")
     return await post_json(endpoint+"/v1/request",payload,{"Authorization":"Bearer "+token} if token else {})
 
-def daily_operator_spend()->int:
-    today=datetime.now(timezone.utc).date().isoformat()
-    with dbconn() as db:return int(db.execute("SELECT COALESCE(SUM(microusd),0) total FROM usage_events WHERE created_at>=?",(today,)).fetchone()["total"])
-
-def user_daily_spend(user_id:int)->tuple[int,int]:
-    today=datetime.now(timezone.utc).date().isoformat()
-    with dbconn() as db:
-        spent=int(db.execute("SELECT COALESCE(SUM(microusd),0) total FROM usage_events WHERE user_id=? AND created_at>=?",(user_id,today)).fetchone()["total"])
-        row=db.execute("SELECT daily_spend_cap_microusd FROM account_settings WHERE user_id=?",(user_id,)).fetchone()
-    return spent,(int(row["daily_spend_cap_microusd"]) if row else 100_000_000)
-
 def reserve_credit(user_id:int, microusd:int, ref:str) -> None:
     if not microusd:return
+    today=datetime.now(timezone.utc).date().isoformat()
     with dbconn() as db:
-        db.execute("SELECT pg_advisory_xact_lock(?)",(user_id,)) if DATABASE_URL else db.execute("BEGIN IMMEDIATE")
+        if DATABASE_URL:
+            db.execute("SELECT pg_advisory_xact_lock(?)",(9_876_543,)); db.execute("SELECT pg_advisory_xact_lock(?)",(user_id,))
+        else: db.execute("BEGIN IMMEDIATE")
         available=int(db.execute("SELECT COALESCE(SUM(microusd),0) total FROM credit_events WHERE user_id=?",(user_id,)).fetchone()["total"])
         if available<microusd: raise HTTPException(402,"Insufficient prepaid credits")
+        global_spend=int(db.execute("SELECT COALESCE(SUM(microusd),0) total FROM usage_events WHERE created_at>=?",(today,)).fetchone()["total"])+int(db.execute("SELECT COALESCE(SUM(microusd),0) total FROM spend_reservations WHERE created_at>=?",(today,)).fetchone()["total"])
+        if global_spend+microusd>OPERATOR_DAILY_CAP_CENTS*10_000: raise HTTPException(503,"Operator daily spend cap reached")
+        user_spend=int(db.execute("SELECT COALESCE(SUM(microusd),0) total FROM usage_events WHERE user_id=? AND created_at>=?",(user_id,today)).fetchone()["total"])+int(db.execute("SELECT COALESCE(SUM(microusd),0) total FROM spend_reservations WHERE user_id=? AND created_at>=?",(user_id,today)).fetchone()["total"])
+        row=db.execute("SELECT daily_spend_cap_microusd FROM account_settings WHERE user_id=?",(user_id,)).fetchone(); cap=int(row["daily_spend_cap_microusd"]) if row else 100_000_000
+        if user_spend+microusd>cap: raise HTTPException(402,"Account daily spend cap reached")
         db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(user_id,-microusd,"usage_reservation",ref,now_iso()))
+        db.execute("INSERT INTO spend_reservations(ref,user_id,microusd,created_at) VALUES(?,?,?,?)",(ref,user_id,microusd,now_iso()))
 
 def refund_reservation(user_id:int, microusd:int, ref:str) -> None:
     if not microusd:return
-    with dbconn() as db: db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(user_id,microusd,"failed_request_refund","refund-"+ref,now_iso()))
+    with dbconn() as db:
+        db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(user_id,microusd,"failed_request_refund","refund-"+ref,now_iso()))
+        db.execute("DELETE FROM spend_reservations WHERE ref=?",(ref,))
 
 async def decide(request:Request,multimodal=False):
     if int(request.headers.get("content-length","0") or 0)>MAX_BODY: raise HTTPException(413,"Request too large")
     user=api_user(request.headers.get("authorization")); enforce_rate_limit(user["key_id"]); body=await request.json(); choices=validate_body(body,multimodal); errors=[]
     for model in choices:
         info=MODELS[model]; microusd=int(info["price_per_1k_cents"]*10)  # cents/1000 -> micro-USD/decision
-        if microusd and daily_operator_spend()>=OPERATOR_DAILY_CAP_CENTS*10_000: raise HTTPException(503,"Operator daily spend cap reached")
-        spent,cap=user_daily_spend(user["id"])
-        if microusd and spent+microusd>cap: raise HTTPException(402,"Account daily spend cap reached")
         reservation=secrets.token_hex(16); reserve_credit(user["id"],microusd,reservation)
         started=time.perf_counter()
         try:
             out=await call_model(model,body,request); ms=round((time.perf_counter()-started)*1000,1)
             with dbconn() as db:
                 db.execute("INSERT INTO usage_events(user_id,api_key_id,model,microusd,provider,latency_ms,created_at) VALUES(?,?,?,?,?,?,?)",(user["id"],user["key_id"],model,microusd,info["provider"],ms,now_iso()))
+                db.execute("DELETE FROM spend_reservations WHERE ref=?",(reservation,))
             return JSONResponse(out,headers={"X-Jev-Provider":info["provider"],"X-Jev-Model":model,"X-Jev-Latency-Ms":str(ms),"X-Jev-Cost-Usd":f"{microusd/1_000_000:.6f}","X-Jev-No-Markup":"true" if info["billing"].startswith("third-party") else "not-applicable","Cache-Control":"no-store"})
         except HTTPException: raise
         except Exception as e:
