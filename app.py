@@ -363,7 +363,13 @@ async def stripe_webhook(request:Request,stripe_signature:str|None=Header(None))
                     previous=db.execute("SELECT microusd FROM stripe_refund_totals WHERE payment_intent=?",(payment_intent,)).fetchone(); previous=int(previous["microusd"]) if previous else 0
                     delta=min(max(0,target_amount-previous),max(0,payment["credited_microusd"]-payment["refunded_microusd"]))
                     db.execute("INSERT INTO stripe_refund_totals(payment_intent,microusd) VALUES(?,?) ON CONFLICT(payment_intent) DO UPDATE SET microusd=excluded.microusd",(payment_intent,max(previous,target_amount)))
-                else: delta=min(target_amount,max(0,payment["credited_microusd"]-payment["refunded_microusd"]))
+                else:
+                    dispute_id=obj.get("id",event["id"]); closed=db.execute("SELECT status FROM stripe_pending_dispute_closures WHERE dispute_id=?",(dispute_id,)).fetchone()
+                    if closed and closed["status"]=="won":
+                        delta=0
+                        db.execute("INSERT INTO stripe_disputes(dispute_id,payment_intent,user_id,microusd,status) VALUES(?,?,?,?,?) ON CONFLICT(dispute_id) DO NOTHING",(dispute_id,payment_intent,payment["user_id"],0,"won"))
+                        db.execute("DELETE FROM stripe_pending_dispute_closures WHERE dispute_id=?",(dispute_id,))
+                    else: delta=min(target_amount,max(0,payment["credited_microusd"]-payment["refunded_microusd"]))
                 if delta:
                     db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(payment["user_id"],-delta,"stripe_refund_or_dispute",event["id"]+"-debit",now_iso()))
                     db.execute("UPDATE stripe_payments SET refunded_microusd=refunded_microusd+? WHERE payment_intent=?",(delta,payment_intent))

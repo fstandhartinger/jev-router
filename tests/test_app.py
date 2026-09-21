@@ -125,6 +125,16 @@ def test_refund_survives_won_dispute_when_both_precede_checkout(client,monkeypat
     send({"id":"evt_mix_won","type":"charge.dispute.closed","data":{"object":{"id":"dp_mix","payment_intent":"pi_mix","status":"won"}}})
     assert app.balance(uid)==7_500_000
 
+def test_won_closure_before_delayed_dispute_create_never_debits(client,monkeypatch):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    def send(event):
+        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
+        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send({"id":"evt_known_top","type":"checkout.session.completed","data":{"object":{"id":"cs_known","payment_intent":"pi_known","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
+    send({"id":"evt_known_won","type":"charge.dispute.closed","data":{"object":{"id":"dp_delayed","payment_intent":"pi_known","status":"won"}}})
+    send({"id":"evt_known_created","type":"charge.dispute.created","data":{"object":{"id":"dp_delayed","payment_intent":"pi_known","amount":400}}})
+    assert app.balance(uid)==10_000_000
+
 def test_stale_reservation_is_reconciled(client):
     uid,_=make_user_key(); old="2000-01-01T00:00:00+00:00"
     with app.dbconn() as db:
