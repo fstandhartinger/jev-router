@@ -75,7 +75,7 @@ def ensure_db() -> None:
         CREATE TABLE IF NOT EXISTS stripe_pending(id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd BIGINT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS account_settings(user_id BIGINT PRIMARY KEY, daily_spend_cap_microusd BIGINT NOT NULL);
         CREATE TABLE IF NOT EXISTS spend_reservations(ref TEXT PRIMARY KEY, user_id BIGINT NOT NULL, microusd BIGINT NOT NULL, created_at TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS rate_windows(api_key_id BIGINT NOT NULL, window TEXT NOT NULL, requests BIGINT NOT NULL, PRIMARY KEY(api_key_id,window));
+        CREATE TABLE IF NOT EXISTS rate_windows(api_key_id BIGINT NOT NULL, bucket_window TEXT NOT NULL, requests BIGINT NOT NULL, PRIMARY KEY(api_key_id,bucket_window));
         CREATE TABLE IF NOT EXISTS stripe_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, user_id BIGINT NOT NULL, microusd BIGINT NOT NULL, status TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS stripe_pending_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd BIGINT NOT NULL);
         CREATE TABLE IF NOT EXISTS stripe_pending_dispute_closures(dispute_id TEXT PRIMARY KEY, status TEXT NOT NULL);
@@ -98,7 +98,7 @@ def ensure_db() -> None:
         CREATE TABLE IF NOT EXISTS stripe_pending(id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd INTEGER NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS account_settings(user_id INTEGER PRIMARY KEY, daily_spend_cap_microusd INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS spend_reservations(ref TEXT PRIMARY KEY, user_id INTEGER NOT NULL, microusd INTEGER NOT NULL, created_at TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS rate_windows(api_key_id INTEGER NOT NULL, window TEXT NOT NULL, requests INTEGER NOT NULL, PRIMARY KEY(api_key_id,window));
+        CREATE TABLE IF NOT EXISTS rate_windows(api_key_id INTEGER NOT NULL, bucket_window TEXT NOT NULL, requests INTEGER NOT NULL, PRIMARY KEY(api_key_id,bucket_window));
         CREATE TABLE IF NOT EXISTS stripe_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, user_id INTEGER NOT NULL, microusd INTEGER NOT NULL, status TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS stripe_pending_disputes(dispute_id TEXT PRIMARY KEY, payment_intent TEXT NOT NULL, microusd INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS stripe_pending_dispute_closures(dispute_id TEXT PRIMARY KEY, status TEXT NOT NULL);
@@ -161,9 +161,9 @@ def enforce_rate_limit(key_id: int) -> None:
     window=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
     with dbconn() as db:
         db.execute("SELECT pg_advisory_xact_lock(?)",(key_id,)) if DATABASE_URL else db.execute("BEGIN IMMEDIATE")
-        row=db.execute("SELECT requests FROM rate_windows WHERE api_key_id=? AND window=?",(key_id,window)).fetchone()
+        row=db.execute("SELECT requests FROM rate_windows WHERE api_key_id=? AND bucket_window=?",(key_id,window)).fetchone()
         if row and int(row["requests"])>=120: raise HTTPException(429,"API key rate limit exceeded",headers={"Retry-After":"60"})
-        db.execute("INSERT INTO rate_windows(api_key_id,window,requests) VALUES(?,?,1) ON CONFLICT(api_key_id,window) DO UPDATE SET requests=rate_windows.requests+1",(key_id,window))
+        db.execute("INSERT INTO rate_windows(api_key_id,bucket_window,requests) VALUES(?,?,1) ON CONFLICT(api_key_id,bucket_window) DO UPDATE SET requests=rate_windows.requests+1",(key_id,window))
 
 def esc(value: Any) -> str:
     import html
