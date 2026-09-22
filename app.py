@@ -24,7 +24,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 
 APP_URL = os.getenv("APP_URL", "http://localhost:8080").rstrip("/")
@@ -316,6 +316,9 @@ async def shutdown():
 
 @app.get("/health")
 def health(): return {"ok": True, "stripe_mode": STRIPE_MODE, "payments_enabled": PAYMENTS_ENABLED, "hosting_control_configured":bool(HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN)}
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon(): return Response(status_code=204)
 
 @app.get("/hosting/models")
 def hosting_models():

@@ -58,6 +58,9 @@ def test_unconfigured_hosting_does_not_start_reaper(client):
     assert not app.HOSTING_CONTROL_TOKEN
     assert app.HOSTING_TASK is None
 
+def test_browser_favicon_request_does_not_error(client):
+    assert client.get("/favicon.ico").status_code==204
+
 def test_auth_required_and_explicit_model(client):
     assert client.post("/v1/systemone",json={}).status_code==401
     _,key=make_user_key()
