@@ -39,6 +39,15 @@ def test_home_leads_with_live_shared_api_when_hosting_is_unavailable(client, mon
     assert "Dedicated hosting is currently unavailable" in response.text
     assert 'href="/login">Start a model' not in response.text
 
+def test_models_page_marks_dedicated_hosting_unavailable(client, monkeypatch):
+    monkeypatch.setattr(app,"HOSTING_CONTROL_URL","")
+    monkeypatch.setattr(app,"HOSTING_CONTROL_TOKEN","")
+    response=client.get("/models-page")
+    assert response.status_code==200
+    assert "Availability" in response.text
+    assert response.text.count('<span class="badge offline">unavailable</span>')==len(app.ON_DEMAND_MODELS)
+    assert "Shared routes below remain usable" in response.text
+
 def test_auth_required_and_explicit_model(client):
     assert client.post("/v1/systemone",json={}).status_code==401
     _,key=make_user_key()
