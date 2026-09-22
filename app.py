@@ -395,7 +395,21 @@ async def hosted_inference(instance_id: str, request: Request):
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     user=current_user(request)
-    return page("Open decision models, on demand", '''<section class="hero"><div class="eyebrow">Open decision models · hosted on demand</div><h1>Open Jev-class models without running the GPUs yourself.</h1><p class="lead">Start a dedicated model when you need it, see its cold-start estimate and live hosted-time meter, then let it turn cold after inactivity. You pay the GPU cost plus a disclosed small margin, per minute, from prepaid credit.</p><div class="actions"><a class="button primary" href="/login">Start a model</a><a class="button" href="/models-page">Compare models</a></div></section><section class="grid"><div class="card"><h3>Dedicated on demand</h3><p class="muted">One GPU instance per start, with adjustable 2–60 minute idle shutdown and automatic zero-balance stop.</p></div><div class="card"><h3>Shared decisions</h3><p class="muted">Warm models can also be used through per-decision routes, including transparent score-ordered meta routes.</p></div><div class="card"><h3>Guarded spend</h3><p class="muted">Prepaid only, with account and global concurrency limits, a daily provider-spend ceiling, and provider-verified orphan cleanup.</p></div></section>''', user)
+    hosting_ready=bool(HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN)
+    if hosting_ready:
+        eyebrow="Open decision models · hosted on demand"
+        headline="Open Jev-class models without running the GPUs yourself."
+        lead="Start a dedicated model when you need it, see its cold-start estimate and live hosted-time meter, then let it turn cold after inactivity. You pay the GPU cost plus a disclosed small margin, per minute, from prepaid credit."
+        primary='<a class="button primary" href="/login">Start a model</a>'
+        notice=""
+    else:
+        eyebrow="Open decision models · shared API live"
+        headline="Use open Jev-class decision models through one API."
+        lead="The shared text API is live now, with transparent model selection and a free route. Dedicated on-demand GPUs are not available yet."
+        primary='<a class="button primary" href="/docs">Use the live API</a>'
+        notice='<p class="notice"><strong>Dedicated hosting is currently unavailable.</strong> You can still use the live shared routes and compare every model.</p>'
+    body=f'''<section class="hero"><div class="eyebrow">{eyebrow}</div><h1>{headline}</h1><p class="lead">{lead}</p>{notice}<div class="actions">{primary}<a class="button" href="/models-page">Compare models</a></div></section><section class="grid"><div class="card"><h3>Dedicated on demand</h3><p class="muted">One GPU instance per start, with adjustable 2–60 minute idle shutdown and automatic zero-balance stop.</p></div><div class="card"><h3>Shared decisions</h3><p class="muted">Warm models can also be used through per-decision routes, including transparent score-ordered meta routes.</p></div><div class="card"><h3>Guarded spend</h3><p class="muted">Prepaid only, with account and global concurrency limits, a daily provider-spend ceiling, and provider-verified orphan cleanup.</p></div></section>'''
+    return page("Open decision models, on demand", body, user)
 
 @app.get("/models")
 def models(): return {"object":"list","data":[{"id":k,**v} for k,v in public_models().items()],"routing_policy":"Concrete IDs are never rerouted. jev-class uses descending text JevBench score among healthy models; image-jev-class uses descending public-pilot-80 score among healthy image models. The next score is fallback; ties use model ID. Price and response model are those of the concrete model that answers."}

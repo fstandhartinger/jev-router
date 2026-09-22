@@ -30,6 +30,15 @@ def test_public_pages_and_model_neutrality(client):
     assert "TypeSafe" not in text and "Vercel" not in text
     assert "Open decision models" in text
 
+def test_home_leads_with_live_shared_api_when_hosting_is_unavailable(client, monkeypatch):
+    monkeypatch.setattr(app,"HOSTING_CONTROL_URL","")
+    monkeypatch.setattr(app,"HOSTING_CONTROL_TOKEN","")
+    response=client.get("/")
+    assert response.status_code==200
+    assert "Use the live API" in response.text
+    assert "Dedicated hosting is currently unavailable" in response.text
+    assert 'href="/login">Start a model' not in response.text
+
 def test_auth_required_and_explicit_model(client):
     assert client.post("/v1/systemone",json={}).status_code==401
     _,key=make_user_key()
