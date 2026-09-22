@@ -301,7 +301,7 @@ async def startup():
     global HEALTH_TASK, HOSTING_TASK
     ensure_db(); reconcile_stale_reservations()
     HEALTH_TASK=asyncio.create_task(probe_providers())
-    HOSTING_TASK=asyncio.create_task(hosting_reaper_loop())
+    HOSTING_TASK=asyncio.create_task(hosting_reaper_loop()) if HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN else None
 
 @app.on_event("shutdown")
 async def shutdown():

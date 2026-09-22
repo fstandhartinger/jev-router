@@ -53,6 +53,11 @@ def test_mobile_navigation_wraps_instead_of_scrolling(client):
     assert "nav{gap:12px;flex-wrap:wrap;padding:16px}" in response.text
     assert "nav{gap:12px;overflow:auto}" not in response.text
 
+def test_unconfigured_hosting_does_not_start_reaper(client):
+    assert not app.HOSTING_CONTROL_URL
+    assert not app.HOSTING_CONTROL_TOKEN
+    assert app.HOSTING_TASK is None
+
 def test_auth_required_and_explicit_model(client):
     assert client.post("/v1/systemone",json={}).status_code==401
     _,key=make_user_key()
