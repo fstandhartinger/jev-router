@@ -48,6 +48,11 @@ def test_models_page_marks_dedicated_hosting_unavailable(client, monkeypatch):
     assert response.text.count('<span class="badge offline">unavailable</span>')==len(app.ON_DEMAND_MODELS)
     assert "Shared routes below remain usable" in response.text
 
+def test_mobile_navigation_wraps_instead_of_scrolling(client):
+    response=client.get("/")
+    assert "nav{gap:12px;flex-wrap:wrap;padding:16px}" in response.text
+    assert "nav{gap:12px;overflow:auto}" not in response.text
+
 def test_auth_required_and_explicit_model(client):
     assert client.post("/v1/systemone",json={}).status_code==401
     _,key=make_user_key()
