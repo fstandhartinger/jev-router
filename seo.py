@@ -22,8 +22,8 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Res
 STATIC = Path(__file__).with_name("static")
 SITE = "https://jev-router.com"
 OG_IMAGE = "/og.png"
-OG_ALT = "Jev Router: open decision models through one API, with transparent routing and per-decision prices."
-DEFAULT_DESCRIPTION = ("Call open Jev-class decision models through one API: typed answers with "
+OG_ALT = "Jev Router: Jev-class decision models through one API, with transparent routing and per-decision prices."
+DEFAULT_DESCRIPTION = ("Call Jev-class decision models through one API: typed answers with "
                        "probabilities, transparent score-ordered routing and per-decision prices.")
 NON_AFFILIATION = ("Jev is a trademark of TypeSafe AI, Inc. Jev Router is an independent service and is "
                    "not affiliated with, endorsed by, or sponsored by TypeSafe AI. We do not provide access "
@@ -33,7 +33,7 @@ NON_AFFILIATION = ("Jev is a trademark of TypeSafe AI, Inc. Jev Router is an ind
 #: fall back to the default description; signed-in pages are noindex.
 DESCRIPTIONS: dict[str, str] = {
     "/": DEFAULT_DESCRIPTION,
-    "/models-page": "Every open decision model on Jev Router with its live status, input types, "
+    "/models-page": "Every decision model on Jev Router with its live status, input types, "
                     "price per 1,000 decisions and published benchmark track.",
     "/docs": "API docs for Jev Router: the decision and OpenAI-compatible endpoints, auto routing "
              "with price and latency preferences, curl and Python examples.",
@@ -41,9 +41,11 @@ DESCRIPTIONS: dict[str, str] = {
     "/decision-model-api": "A decision model API returns typed judgments with probabilities "
                            "instead of free text. What that is, when to use it, and a working "
                            "request against Jev Router.",
-    "/jev-alternatives": "Open Jev-class alternatives you can call today: the decision models on "
-                         "Jev Router, their live status and price, and where their benchmark "
-                         "scores come from.",
+    "/jev-alternatives": "Jev alternatives you can call today: the Jev-class decision models on "
+                         "Jev Router with their live status, price, licence and published "
+                         "JevBench Score.",
+    "/pricing": "Jev Router pricing: what each decision route costs per 1,000 decisions, "
+                "bring-your-own-key routes, and how prepaid credit works.",
     "/system-one-models": "System One models make fast, typed decisions for software, the way "
                           "System 1 thinking does for people. What they are, how they differ "
                           "from chat LLMs, and how to call open ones.",
@@ -55,7 +57,7 @@ DESCRIPTIONS: dict[str, str] = {
 #: The request path, so app.py's page() needs no extra argument at each call site.
 CURRENT_PATH: ContextVar[str] = ContextVar("seo_current_path", default="/")
 NOINDEX = {"/dashboard", "/usage", "/login", "/logout"}
-SITEMAP = ["/", "/models-page", "/docs", "/decision-model-api", "/jev-alternatives",
+SITEMAP = ["/", "/models-page", "/pricing", "/docs", "/decision-model-api", "/jev-alternatives",
            "/system-one-models", "/status", "/terms", "/privacy", "/refunds", "/impressum"]
 
 
@@ -80,7 +82,8 @@ def faq_html(faq: list[tuple[str, str]]) -> str:
 
 HOME_FAQ = [
     ("What is Jev Router?",
-     "A prepaid gateway for open decision models (Jev-class). You send state and typed questions "
+     "A prepaid gateway for Jev-class decision models: open models we host and third-party "
+     "services whose terms allow it. You send state and typed questions "
      "to one endpoint and get typed answers back, from a concrete model you name or from a "
      "transparent meta route."),
     ("Is Jev Router open source?",
@@ -196,10 +199,12 @@ def register(app: FastAPI, page: Callable[..., HTMLResponse], models: Callable[[
                  f"- [Model catalogue, JSON]({SITE}/models): live status, price and benchmark track per model",
                  f"- [Model catalogue, HTML]({SITE}/models-page)",
                  f"- [Decision model API]({SITE}/decision-model-api): what a decision model is and when to use one",
-                 f"- [Open Jev alternatives]({SITE}/jev-alternatives)",
+                 f"- [Jev alternatives]({SITE}/jev-alternatives): each model with licence and published JevBench Score",
                  f"- [System One models]({SITE}/system-one-models)",
                  "", "## Models (live catalogue at the time of this request)"]
         for key, info in models().items():
+            if key.startswith("stripe-test") or "fixture" in str(info.get("adapter", "")):
+                continue
             lines.append(f"- {key}: {info.get('status')}; {', '.join(info.get('modalities', []))}; {info.get('billing')}")
         lines += ["", "## Optional",
                   "- [Source code](https://github.com/fstandhartinger/jev-router)",
@@ -213,16 +218,24 @@ def register(app: FastAPI, page: Callable[..., HTMLResponse], models: Callable[[
     def models_table() -> str:
         rows = []
         for key, info in models().items():
-            if key in ("auto", "jev-class", "image-jev-class"):
+            # Meta routes are not models; test fixtures are not for the public.
+            if key in ("auto", "jev-class", "image-jev-class") or "fixture" in str(info.get("adapter", "")) \
+                    or "test fixture" in str(info.get("provider", "")).lower() or key.startswith("stripe-test"):
                 continue
-            score = info.get("jevbench") or info.get("imagejevbench")
-            bench = (f'{_e(score.get("score"))} ({"JevBench" if info.get("jevbench") else "ImageJevBench"} {_e(score.get("version", ""))})'
-                     if score and score.get("score") is not None else "—")
+            j, i = info.get("jevbench"), info.get("imagejevbench")
+            # The headline number Benchmark Heaven publishes is the JevBench Score ("composite"), not a sub-score.
+            if j and j.get("composite") is not None:
+                bench = f'{float(j["composite"]):.1f}' + (f' (#{_e(j["rank"])})' if j.get("rank") else "") + f' · JevBench {_e(j.get("version", ""))}'
+            elif i and i.get("score") is not None:
+                bench = f'{float(i["score"]):.1f}' + (f' (#{_e(i["rank"])})' if i.get("rank") else "") + f' · ImageJevBench {_e(i.get("version", ""))}'
+            else:
+                bench = '<span class="muted">not benchmarked</span>'
             rows.append(f'<tr><th scope="row"><strong>{_e(key)}</strong><br><span class="muted">{_e(info.get("provider", ""))}</span></th>'
                         f'<td><span class="badge {_e(info.get("status", ""))}">{_e(info.get("status", ""))}</span></td>'
-                        f'<td>{_e(", ".join(info.get("modalities", [])))}</td><td>{_e(info.get("billing", ""))}</td><td>{bench}</td></tr>')
+                        f'<td>{_e(", ".join(info.get("modalities", [])))}</td><td>{_e(info.get("billing", ""))}</td>'
+                        f'<td>{_e(info.get("licence") or "not stated")}</td><td>{bench}</td></tr>')
         return ('<div class="table-wrap"><table><thead><tr><th>Model</th><th>Status</th><th>Input</th><th>Price</th>'
-                '<th>Published benchmark</th></tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
+                '<th>Licence</th><th>JevBench Score</th></tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
 
     example = ('curl https://jev-router.com/v1/systemone \\\n  -H "Authorization: Bearer jvr_…" \\\n'
                '  -H "Content-Type: application/json" \\\n'
@@ -253,12 +266,13 @@ def register(app: FastAPI, page: Callable[..., HTMLResponse], models: Callable[[
 
     @app.get("/jev-alternatives", response_class=HTMLResponse)
     def jev_alternatives(request: Request):
-        body = ('<h1 style="font-size:52px">Open Jev alternatives</h1><p class="lead">Jev-class decision models '
-                'you can call through one API today, with their live status and price.</p>'
+        body = ('<h1 style="font-size:52px">Jev alternatives</h1><p class="lead">Jev-class decision models '
+                'you can call through one API today — open models and third-party services — with their '
+                'live status, price and licence.</p>'
                 f'<p class="notice">{_e(NON_AFFILIATION)}</p>'
                 '<h2>Models on Jev Router</h2>' + models_table() +
-                '<p class="muted">Status is live health, not a promise. Benchmark scores are the published JevBench '
-                'and image-benchmark results; see <a href="https://benchmarkheaven.com/jev-models"><u>JevBench on '
+                '<p class="muted">Status is live health, not a promise. The score is the published JevBench Score '
+                '(or ImageJevBench score) and rank; see <a href="https://benchmarkheaven.com/jev-models"><u>JevBench on '
                 'Benchmark Heaven</u></a> for the full comparison, method and every other system.</p>'
                 '<h2>Choosing one</h2><p>Use <code>auto</code> if you want the best healthy model by '
                 'published score with automatic fallback. Pin a concrete model if you need a stable price, a '
@@ -266,7 +280,7 @@ def register(app: FastAPI, page: Callable[..., HTMLResponse], models: Callable[[
                 '<p class="actions"><a class="button primary" href="/docs">Call a model</a>'
                 '<a class="button" href="/decision-model-api">What is a decision model API?</a></p>'
                 + faq_html(PAGE_FAQ["/jev-alternatives"]))
-        return page("Open Jev alternatives", body, current_user(request))
+        return page("Jev alternatives", body, current_user(request))
 
     @app.get("/system-one-models", response_class=HTMLResponse)
     def system_one_models(request: Request):

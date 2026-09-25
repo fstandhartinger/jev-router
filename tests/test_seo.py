@@ -40,7 +40,16 @@ def test_intent_pages_stay_honest(client):
     alt=client.get("/jev-alternatives").text
     assert "not affiliated with, endorsed by, or sponsored by TypeSafe AI" in alt and "benchmarkheaven.com/jev-models" in alt
     assert "jev-typesafe" not in alt
-    # every number shown is one the live catalogue holds
+    assert "Open Jev alternatives" not in alt  # the list includes closed third-party services
+    # every public model is listed; test fixtures are not
     for key,info in app.public_models().items():
         if key in app.META_MODELS: continue
+        if key.startswith("stripe-test"):
+            assert key not in alt; continue
         assert key in alt
+    # the number shown is the published JevBench Score (composite), never a sub-score
+    for key,info in app.public_models().items():
+        j=info.get("jevbench") or {}
+        if j.get("composite") is not None and j.get("score") is not None and abs(j["composite"]-j["score"])>0.1:
+            row=alt.split(f"<strong>{key}</strong>",1)[1].split("</tr>",1)[0]
+            assert f'{float(j["composite"]):.1f}' in row and f'{float(j["score"]):.1f}' not in row
