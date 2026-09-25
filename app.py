@@ -25,6 +25,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+import seo
 from starlette.middleware.sessions import SessionMiddleware
 
 APP_URL = os.getenv("APP_URL", "http://localhost:8080").rstrip("/")
@@ -294,7 +295,7 @@ CSS = """
 
 def page(title: str, body: str, user=None) -> HTMLResponse:
     auth = '<a href="/dashboard">Dashboard</a><a href="/logout">Sign out</a>' if user else '<a href="/login">Sign in</a>'
-    return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Open decision models (Jev-class), hosted on demand."><title>{esc(title)} · Jev Router</title><style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a></footer></body></html>''')
+    return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Jev Router</title>{seo.head(title)}<style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/decision-model-api">Decision model API</a><a href="/jev-alternatives">Open Jev alternatives</a><a href="/system-one-models">System One models</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a></footer></body></html>''')
 
 @app.on_event("startup")
 async def startup():
@@ -411,7 +412,7 @@ def home(request: Request):
         lead="The shared text API is live now, with transparent model selection and a free route. Dedicated on-demand GPUs are not available yet."
         primary='<a class="button primary" href="/docs">Use the live API</a>'
         notice='<p class="notice"><strong>Dedicated hosting is currently unavailable.</strong> You can still use the live shared routes and compare every model.</p>'
-    body=f'''<section class="hero"><div class="eyebrow">{eyebrow}</div><h1>{headline}</h1><p class="lead">{lead}</p>{notice}<div class="actions">{primary}<a class="button" href="/models-page">Compare models</a></div></section><section class="grid"><div class="card"><h3>Dedicated on demand</h3><p class="muted">One GPU instance per start, with adjustable 2–60 minute idle shutdown and automatic zero-balance stop.</p></div><div class="card"><h3>Shared decisions</h3><p class="muted">Warm models can also be used through per-decision routes, including transparent score-ordered meta routes.</p></div><div class="card"><h3>Guarded spend</h3><p class="muted">Prepaid only, with account and global concurrency limits, a daily provider-spend ceiling, and provider-verified orphan cleanup.</p></div></section>'''
+    body=f'''<section class="hero"><div class="eyebrow">{eyebrow}</div><h1>{headline}</h1><p class="lead">{lead}</p>{notice}<div class="actions">{primary}<a class="button" href="/models-page">Compare models</a></div></section><section class="grid"><div class="card"><h3>Dedicated on demand</h3><p class="muted">One GPU instance per start, with adjustable 2–60 minute idle shutdown and automatic zero-balance stop.</p></div><div class="card"><h3>Shared decisions</h3><p class="muted">Warm models can also be used through per-decision routes, including transparent score-ordered meta routes.</p></div><div class="card"><h3>Guarded spend</h3><p class="muted">Prepaid only, with account and global concurrency limits, a daily provider-spend ceiling, and provider-verified orphan cleanup.</p></div></section>'''+seo.faq_html(seo.HOME_FAQ)
     return page("Open decision models, on demand", body, user)
 
 @app.get("/models")
@@ -932,6 +933,8 @@ async def chat(request:Request):
         async def json(self): return native
     response=await decide(Wrapped(),bool(native.get("images"))); data=json.loads(response.body)
     return JSONResponse({"id":"jev-"+secrets.token_hex(8),"object":"chat.completion","created":int(time.time()),"model":response.headers.get("X-Jev-Model"),"choices":[{"index":0,"message":{"role":"assistant","content":json.dumps(data)},"finish_reason":"stop"}]},headers=dict(response.headers))
+
+seo.register(app, page, public_models, current_user)
 
 if __name__ == "__main__":
     import uvicorn
