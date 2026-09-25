@@ -28,6 +28,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from starlette.middleware.sessions import SessionMiddleware
 
 import routing
+import seo
 
 APP_URL = os.getenv("APP_URL", "http://localhost:8080").rstrip("/")
 DB_PATH = os.getenv("DATABASE_PATH", "/data/jev-router.db")
@@ -316,7 +317,7 @@ DISCLAIMER="Jev is a trademark of TypeSafe AI, Inc. Jev Router is an independent
 
 def page(title: str, body: str, user=None) -> HTMLResponse:
     auth = '<a href="/dashboard">Dashboard</a><a href="/logout">Sign out</a>' if user else '<a href="/login">Sign in</a>'
-    return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="One API for open decision models (Jev-class): choice, yes/no and score decisions routed by published benchmark scores, price and latency."><title>{esc(title)} · Jev Router</title><style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/pricing">Pricing</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/pricing">Pricing</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a><p class="muted" style="flex-basis:100%;font-size:13px;margin:0">{DISCLAIMER}</p></footer></body></html>''')
+    return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Jev Router</title>{seo.head(title)}<style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/pricing">Pricing</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/pricing">Pricing</a><a href="/decision-model-api">Decision model API</a><a href="/jev-alternatives">Open Jev alternatives</a><a href="/system-one-models">System One models</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a><p class="muted" style="flex-basis:100%;font-size:13px;margin:0">{DISCLAIMER}</p></footer></body></html>''')
 
 @app.on_event("startup")
 async def startup():
@@ -476,7 +477,7 @@ def home(request: Request):
     live=live_routes()
     body=f'''<section class="hero"><div class="eyebrow">Open decision models · one API</div><h1>Typed decisions from the best open model that is up right now.</h1><p class="lead">Ask choice, yes/no and score questions about text or images. Jev Router picks the model from published JevBench and ImageJevBench scores, price and live latency, fails over automatically, and tells you which model answered and what it cost.</p><div class="actions"><a class="button primary" href="/login">Get an API key</a><a class="button" href="/models-page">See {len(CATALOGUE)} catalogued systems</a><a class="button" href="/docs">Read the docs</a></div></section>
 <section class="grid"><div class="card"><h3>Routed by published scores</h3><p class="muted"><code>auto</code> follows one public rule: best benchmark score among healthy models, or the cheapest, fastest or best-balanced if you ask. {len(live)} routes are live now.</p></div><div class="card"><h3>Two API shapes</h3><p class="muted">A decision API (<code>/v1/systemone</code>, <code>/v1/multimodal</code>) and an OpenAI-compatible <code>/v1/chat/completions</code> with typed <code>questions</code>.</p></div><div class="card"><h3>Prepaid, capped, transparent</h3><p class="muted">Per-decision prices from USD 0.01 per 1,000. Prepaid credit via Stripe, daily spend caps, failed calls never charged, unused credit refundable.</p></div></section>
-<h2>One request</h2><pre>{esc(HOME_EXAMPLE)}</pre><p class="muted">The response contains the typed answers, the model that answered, any attempts it failed over from, and the cost in the <code>X-Jev-Cost-Usd</code> header.</p>'''
+<h2>One request</h2><pre>{esc(HOME_EXAMPLE)}</pre><p class="muted">The response contains the typed answers, the model that answered, any attempts it failed over from, and the cost in the <code>X-Jev-Cost-Usd</code> header.</p>'''+seo.faq_html(seo.HOME_FAQ)
     return page("One API for open decision models", body, user)
 
 @app.get("/models")
@@ -1133,6 +1134,8 @@ async def chat(request:Request):
 @app.get("/v1/models")
 def openai_models():
     return {"object":"list","data":[{"id":k,"object":"model","created":1790000000,"owned_by":v["provider"],"status":v["status"],"billing":v["billing"]} for k,v in public_models().items()]}
+
+seo.register(app, page, public_models, current_user)
 
 if __name__ == "__main__":
     import uvicorn
