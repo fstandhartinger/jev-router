@@ -119,7 +119,7 @@ def eligible(entry: dict[str, Any], *, image: bool, question_types: set[str], pr
         return False
     if not question_types <= set(entry["question_types"]):
         return False
-    if entry["routing"] == "byok" and entry["byok_vendor"] not in provider_keys:
+    if entry["routing"] == "byok" and not provider_keys.get(entry["byok_vendor"]):
         return False
     return health.available(entry["id"])
 

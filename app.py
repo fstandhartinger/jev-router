@@ -790,6 +790,7 @@ def process_stripe_event(event:dict,obj:dict):
     return {"received":True}
 
 ROUTE_KEYS=("model","fallback","route","provider_keys")
+DEFAULT_INSTRUCTIONS={"choice":"Choose the option that best fits the state.","noul":"Is this true for the state?","score":"Rate the state on this scale."}
 
 def validate_body(body:dict,multimodal:bool):
     if not isinstance(body,dict): raise HTTPException(400,"Request body must be an object")
@@ -835,7 +836,7 @@ def validate_body(body:dict,multimodal:bool):
         else:
             info=MODELS[model]
             if not qtypes<=set(info["question_types"]): raise HTTPException(400,{"error":"unsupported_question_type","model":model,"supported":info["question_types"]})
-            if info["routing"]=="byok" and CATALOGUE[model]["byok_vendor"] not in provider_keys: raise HTTPException(400,{"error":"provider_key_required","model":model,"vendor":CATALOGUE[model]["byok_vendor"]})
+            if info["routing"]=="byok" and not provider_keys.get(CATALOGUE[model]["byok_vendor"]): raise HTTPException(400,{"error":"provider_key_required","model":model,"vendor":CATALOGUE[model]["byok_vendor"]})
             expanded.append(model)
     choices=list(dict.fromkeys(expanded))
     if not choices: raise HTTPException(503,{"error":"no_eligible_model","detail":"No healthy model supports this modality, these question types and route limits right now."})
@@ -1026,6 +1027,8 @@ async def call_model(model:str,body:dict,request:Request):
         headers[entry.get("byok_header","Authorization")]=(entry.get("byok_prefix","Bearer "))+key
     if entry["adapter"]=="systemone":
         if entry.get("upstream_model"): payload["model"]=entry["upstream_model"]
+        # Some providers require instructions on every question; fill a neutral one when absent.
+        payload["questions"]={name:({**q,"instructions":DEFAULT_INSTRUCTIONS[q["type"]]} if not q.get("instructions") else q) for name,q in questions.items()}
         out=await post_json(endpoint+entry.get("path","/v1/systemone"),payload,headers,timeout=entry.get("timeout_s",30))
         return normalise_answers(model,questions,out)
     raise ValueError(f"unknown adapter {entry['adapter']}")
@@ -1089,7 +1092,9 @@ async def decide(request:Request,multimodal=False,body:dict|None=None):
         except asyncio.CancelledError:
             refund_reservation(user["id"],microusd,reservation); raise
         except Exception as e:
-            HEALTH.fail(model,f"{type(e).__name__}")
+            # A provider rejecting this particular request (4xx other than 408/429) says nothing about its health.
+            request_specific=isinstance(e,httpx.HTTPStatusError) and 400<=e.response.status_code<500 and e.response.status_code not in (408,429)
+            if not request_specific: HEALTH.fail(model,f"{type(e).__name__}")
             refund_reservation(user["id"],microusd,reservation)
             detail=f"HTTP {e.response.status_code}" if isinstance(e,httpx.HTTPStatusError) else type(e).__name__ if not isinstance(e,ValueError) else str(e)[:160]
             errors.append({"model":model,"error":detail})
