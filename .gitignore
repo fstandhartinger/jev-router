@@ -6,3 +6,4 @@ __pycache__/
 OUTPUT.md
 PROMPT.md
 session.log
+.venv/

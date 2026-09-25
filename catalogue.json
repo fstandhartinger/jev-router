@@ -1,0 +1,40 @@
+{
+ "generated_from": "JevBench v1.4.2 published results; ImageJevBench v0.1 published results",
+ "entries": [
+  {
+   "id": "classifier-fast",
+   "display": "classifier.dev fast tier",
+   "vendor": "classifier.dev",
+   "homepage": "https://classifier.dev",
+   "routing": "free",
+   "adapter": "classifier.dev",
+   "health_url": "https://classifier.dev/health",
+   "modalities": [
+    "text"
+   ],
+   "question_types": [
+    "choice",
+    "noul"
+   ],
+   "licence": "MIT code; hosted service",
+   "terms_basis": "PENDING",
+   "terms_url": "https://classifier.dev",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "classifier-dev-fast",
+    "score": 61.99,
+    "composite": 70.82,
+    "rank": null,
+    "listing": "honorable_mention",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9726027397260274,
+     "hard": 0.7045454545454546
+    },
+    "p50_s": 0.38636084645986557,
+    "cost_usd_per_1k": 0.003333333333333333
+   }
+  }
+ ]
+}

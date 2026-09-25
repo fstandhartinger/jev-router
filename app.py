@@ -27,18 +27,33 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 
+import routing
+
 APP_URL = os.getenv("APP_URL", "http://localhost:8080").rstrip("/")
 DB_PATH = os.getenv("DATABASE_PATH", "/data/jev-router.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "local-development-only-change-me")
-STRIPE_SECRET_KEY = os.getenv("STRIPE_TEST_SECRET_KEY") or os.getenv("STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_TEST_WEBHOOK_SECRET") or os.getenv("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_MODE = "test" if (STRIPE_SECRET_KEY.startswith("sk_test_") or not STRIPE_SECRET_KEY) else "live"
-# This release is deliberately test-mode only. A live key can never enable checkout.
-PAYMENTS_ENABLED = STRIPE_MODE == "test" and os.getenv("PAYMENTS_ENABLED_TEST", "false").lower() == "true"
+# Payments mode is explicit. Live needs STRIPE_MODE=live, live keys and PAYMENTS_ENABLED_LIVE=true;
+# key prefixes alone never switch modes, and test keys are never used in live mode (or vice versa).
+STRIPE_MODE = "live" if os.getenv("STRIPE_MODE", "test").lower() == "live" else "test"
+if STRIPE_MODE == "live":
+    STRIPE_SECRET_KEY = os.getenv("STRIPE_LIVE_SECRET_KEY", "")
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_LIVE_WEBHOOK_SECRET", "")
+    PAYMENTS_ENABLED = os.getenv("PAYMENTS_ENABLED_LIVE", "false").lower() == "true" and STRIPE_SECRET_KEY.startswith(("sk_live_", "rk_live_")) and bool(STRIPE_WEBHOOK_SECRET)
+else:
+    STRIPE_SECRET_KEY = os.getenv("STRIPE_TEST_SECRET_KEY") or os.getenv("STRIPE_SECRET_KEY", "")
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_TEST_WEBHOOK_SECRET") or os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    if STRIPE_SECRET_KEY and not STRIPE_SECRET_KEY.startswith(("sk_test_", "rk_test_")): STRIPE_SECRET_KEY = ""
+    PAYMENTS_ENABLED = os.getenv("PAYMENTS_ENABLED_TEST", "false").lower() == "true"
+MAX_TOPUP_CENTS = int(os.getenv("MAX_TOPUP_CENTS", "50000"))
+DAILY_TOPUP_CAP_CENTS = int(os.getenv("DAILY_TOPUP_CAP_CENTS", "100000"))
+CHECKOUTS_PER_HOUR = int(os.getenv("CHECKOUTS_PER_HOUR", "5"))
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
+CANONICAL_HOST = os.getenv("CANONICAL_HOST", "jev-router.com")
+ALIAS_HOSTS = {h.strip().lower() for h in os.getenv("ALIAS_HOSTS", "www.jev-router.com,jev-router.app.mintapis.com,decision-models.com,www.decision-models.com,decisionmodels.io,www.decisionmodels.io,decisionmodels.cloud,www.decisionmodels.cloud,decisionmodels.online,www.decisionmodels.online,system-one.io,www.system-one.io,system-one.cloud,www.system-one.cloud,system-one.online,www.system-one.online").split(",") if h.strip()}
 STRIPE_AUTOMATIC_TAX = os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() == "true"
 MIN_TOPUP_CENTS = int(os.getenv("MIN_TOPUP_CENTS", "1000"))
-OPERATOR_DAILY_CAP_CENTS = int(os.getenv("OPERATOR_DAILY_CAP_CENTS", "2500"))
+OPERATOR_DAILY_CAP_CENTS = int(os.getenv("OPERATOR_DAILY_CAP_CENTS", "50000"))
 HOSTING_CONTROL_URL = os.getenv("HOSTING_CONTROL_URL", "").rstrip("/")
 HOSTING_CONTROL_TOKEN = os.getenv("HOSTING_CONTROL_TOKEN", "")
 HOSTING_ACCOUNT_MAX = int(os.getenv("HOSTING_ACCOUNT_MAX", "1"))
@@ -49,14 +64,33 @@ HOSTING_REAPER_SECONDS = int(os.getenv("HOSTING_REAPER_SECONDS", "120"))
 MAX_BODY = 2_500_000
 MAX_IMAGES = 4
 MAX_IMAGE_BYTES = 2_000_000
+MAX_ATTEMPTS = int(os.getenv("MAX_ATTEMPTS", "4"))
 
-MODELS: dict[str, dict[str, Any]] = {
-    "classifier-fast": {"provider":"classifier.dev","status":"live","modalities":["text"],"price_per_1k_cents":0,"billing":"free","jevbench":{"track":"text-v1.2","score":84.8},"terms":"Free within published limits."},
-    "semif-qwen3.5-4b": {"provider":"self-hosted SemIf","status":"live" if os.getenv("SEMIF_ENDPOINT") else "offline","modalities":["text"],"price_per_1k_cents":5,"billing":"$0.05 / 1,000 decisions (includes disclosed infrastructure margin)","jevbench":{"track":"text-v1.2","score":74.7},"terms":"Open implementation; scale-to-zero endpoint."},
-    "djev": {"provider":"self-hosted djev-dev","status":"live" if os.getenv("DJEV_ENDPOINT") else "offline","modalities":["text","image"],"price_per_1k_cents":6,"billing":"$0.06 / 1,000 decisions (10% utilization cost basis plus about 6% infrastructure margin)","jevbench":{"track":"text-v1.2","score":74.3},"multimodal_benchmark":{"track":"public-pilot-80","score":53.75},"terms":"Apache-2.0 runtime and weights; Maisa hosted API is not proxied."},
-    "decider-2b-vision": {"provider":"self-hosted Mapika decider","status":"live" if os.getenv("DECIDER_ENDPOINT") else "offline","modalities":["text","image"],"price_per_1k_cents":5,"billing":"$0.05 / 1,000 decisions (includes disclosed infrastructure margin)","jevbench":None,"multimodal_benchmark":{"track":"public-pilot-80","score":56.25},"terms":"Self-hosted image decision model."},
-    "laya-421m": {"provider":"self-hosted Laya","status":"live" if os.getenv("LAYA_ENDPOINT") else "offline","modalities":["text"],"price_per_1k_cents":1,"billing":"$0.01 / 1,000 decisions (includes disclosed infrastructure margin)","jevbench":None,"terms":"CPU-capable; endpoint remains off until latency is validated."},
-}
+CATALOGUE = routing.load_catalogue()
+HEALTH = routing.Health()
+
+def billing_text(entry: dict[str, Any]) -> str:
+    if entry["routing"]=="paid": return f'USD {entry["price_per_1k_cents"]/100:.2f} / 1,000 decisions'
+    if entry["routing"]=="free": return "Free (third-party service; we add no charge)"
+    if entry["routing"]=="byok": return "Your own provider key; we add no charge"
+    return "Not routed (listed for comparison)"
+
+def entry_endpoint(entry: dict[str, Any]) -> str:
+    return (os.getenv(entry["base_url_env"],"") if entry.get("base_url_env") else entry.get("base_url") or "").rstrip("/")
+
+def build_models() -> dict[str, dict[str, Any]]:
+    models={}
+    for model, entry in CATALOGUE.items():
+        if entry["routing"]=="listed": continue
+        configured=entry["adapter"]=="classifier.dev" or bool(entry_endpoint(entry))
+        models[model]={"provider":entry["vendor"],"display":entry["display"],"status":"live" if configured else "offline","configured":configured,
+            "routing":entry["routing"],"modalities":entry["modalities"],"question_types":entry["question_types"],
+            "price_per_1k_cents":entry.get("price_per_1k_cents",0) if entry["routing"]=="paid" else 0,"billing":billing_text(entry),
+            "jevbench":entry.get("jevbench"),"imagejevbench":entry.get("imagejevbench"),"licence":entry.get("licence"),
+            "terms":entry["terms_basis"],"terms_url":entry.get("terms_url"),"homepage":entry.get("homepage")}
+    return models
+
+MODELS: dict[str, dict[str, Any]] = build_models()
 ON_DEMAND_MODELS: dict[str, dict[str, Any]] = {
     "djev-spark": {
         "provider": "lium.io (RunPod fallback)", "gpu": "RTX 5090 32 GB",
@@ -75,90 +109,76 @@ for _hosting in ON_DEMAND_MODELS.values():
     _hosting["margin_percent"] = HOSTING_MARGIN_PERCENT
     _hosting["price_microusd_per_minute"] = (_hosting["provider_microusd_per_minute"] * (100 + HOSTING_MARGIN_PERCENT) + 99) // 100
 META_MODELS: dict[str, dict[str, Any]] = {
-    "jev-class": {"provider":"Jev Router transparent meta route","status":"offline","modalities":["text"],"price_per_1k_cents":None,"billing":"The price of the concrete model that answers.","jevbench":None,"terms":"Highest text JevBench score among healthy models; next score is the automatic fallback."},
-    "image-jev-class": {"provider":"Jev Router transparent meta route","status":"offline","modalities":["text","image"],"price_per_1k_cents":None,"billing":"The price of the concrete model that answers.","jevbench":None,"multimodal_benchmark":None,"terms":"Highest public-pilot-80 image score among healthy models; next score is the automatic fallback."},
+    "auto": {"provider":"Jev Router published routing rule","modalities":["text","image"],"price_per_1k_cents":None,"billing":"The price of the concrete model that answers.","terms":"Picks the best healthy model for the request's modality, question types and route preferences; the next one is the automatic fallback."},
+    "jev-class": {"provider":"Jev Router published routing rule","modalities":["text"],"price_per_1k_cents":None,"billing":"The price of the concrete model that answers.","terms":"Alias of auto with prefer=quality for text: highest JevBench score among healthy models."},
+    "image-jev-class": {"provider":"Jev Router published routing rule","modalities":["text","image"],"price_per_1k_cents":None,"billing":"The price of the concrete model that answers.","terms":"Alias of auto with prefer=quality for images: highest ImageJevBench score among healthy image models."},
 }
 if STRIPE_MODE == "test" and PAYMENTS_ENABLED:
-    MODELS["stripe-test-paid"] = {
-        "provider":"Jev Router test fixture",
-        "status":"live",
-        "modalities":["text"],
-        "price_per_1k_cents":10,
-        "billing":"$0.10 / 1,000 decisions; Stripe test mode only",
-        "jevbench":None,
-        "terms":"Deterministic non-production route for end-to-end billing acceptance tests.",
-    }
+    MODELS["stripe-test-paid"] = {"provider":"Jev Router test fixture","display":"Stripe test fixture","status":"live","configured":True,"routing":"paid","modalities":["text"],"question_types":["choice","noul","score"],
+        "price_per_1k_cents":10,"billing":"USD 0.10 / 1,000 decisions; Stripe test mode only","jevbench":None,"imagejevbench":None,"terms":"Deterministic non-production route for billing tests."}
+    CATALOGUE["stripe-test-paid"] = {"id":"stripe-test-paid","routing":"paid","modalities":["text"],"question_types":["choice","noul","score"],"price_per_1k_cents":10,"adapter":"fixture","jevbench":None}
 
-PROVIDER_HEALTH: dict[str, bool] = {
-    model: bool(os.getenv(env)) for model, env in {
-        "semif-qwen3.5-4b":"SEMIF_ENDPOINT", "djev":"DJEV_ENDPOINT",
-        "decider-2b-vision":"DECIDER_ENDPOINT", "laya-421m":"LAYA_ENDPOINT",
-    }.items()
-}
-PROVIDER_HEALTH["classifier-fast"]=True
 HEALTH_TASK: asyncio.Task | None = None
 HOSTING_TASK: asyncio.Task | None = None
 
 def concrete_status(model: str) -> str:
-    status=MODELS[model]["status"]
-    if model in PROVIDER_HEALTH and status != "disabled":
-        return "live" if PROVIDER_HEALTH[model] else "offline"
-    return status
+    if not MODELS[model].get("configured",True): return "offline"
+    return HEALTH.status(model) if model!="stripe-test-paid" else "live"
+
+def route_candidates(model: str, *, image: bool, question_types: set[str], provider_keys: dict[str, str] | None = None, route: dict[str, Any] | None = None) -> list[str]:
+    route=route or {}
+    prefer=route.get("prefer","quality") if model=="auto" else "quality"
+    routable={k:v for k,v in CATALOGUE.items() if k in MODELS and MODELS[k].get("configured",True) and k!="stripe-test-paid"}
+    return routing.rank(routable, HEALTH, image=image, question_types=question_types, provider_keys=provider_keys or {},
+        prefer=prefer, task=route.get("task") if model=="auto" else None, max_price_per_1k=route.get("max_price_per_1k"),
+        max_latency_ms=route.get("max_latency_ms"), benchmarked_only=model!="auto" or bool(route.get("benchmarked_only",False)))
 
 def meta_candidates(meta: str) -> list[str]:
-    score_key="multimodal_benchmark" if meta=="image-jev-class" else "jevbench"
-    candidates=[]
-    for model, info in MODELS.items():
-        score=info.get(score_key)
-        if concrete_status(model)!="live" or not score:
-            continue
-        if meta=="image-jev-class" and "image" not in info["modalities"]:
-            continue
-        candidates.append((float(score["score"]),model))
-    return [model for _,model in sorted(candidates,key=lambda item:(-item[0],item[1]))]
+    image=meta=="image-jev-class"
+    return route_candidates(meta, image=image, question_types={"choice"})
 
 def public_models() -> dict[str, dict[str, Any]]:
-    result={k:{**v,"status":concrete_status(k)} for k,v in MODELS.items()}
+    result={}
+    for k,v in MODELS.items():
+        h=HEALTH.get(k)
+        result[k]={**v,"status":concrete_status(k),"observed_latency_ms":h["ewma_ms"]}
     for meta, info in META_MODELS.items():
-        candidates=meta_candidates(meta)
+        candidates=meta_candidates("jev-class" if meta=="auto" else meta)
         result[meta]={**info,"status":"live" if candidates else "offline","routing_order":candidates}
     return result
 
+def listed_models() -> list[dict[str, Any]]:
+    return [v for v in CATALOGUE.values() if v["routing"]=="listed"]
+
+async def probe_one(client: httpx.AsyncClient, model: str, entry: dict[str, Any]) -> None:
+    url=entry.get("health_url") or (entry_endpoint(entry)+entry["health_path"] if entry.get("health_path") and entry_endpoint(entry) else "")
+    if not url: return
+    started=time.perf_counter()
+    try:
+        response=await client.get(url)
+        if response.status_code<500: HEALTH.ok(model, None if entry.get("health_is_cheap",True) else round((time.perf_counter()-started)*1000,1))
+        else: HEALTH.fail(model,f"health HTTP {response.status_code}")
+    except Exception as exc:
+        HEALTH.fail(model,f"health {type(exc).__name__}")
+
 async def probe_providers() -> None:
-    mapping={"semif-qwen3.5-4b":"SEMIF_ENDPOINT","djev":"DJEV_ENDPOINT","decider-2b-vision":"DECIDER_ENDPOINT","laya-421m":"LAYA_ENDPOINT"}
     while True:
-        async with httpx.AsyncClient(timeout=5) as client:
-            try:
-                response=await client.get("https://classifier.dev/health")
-                PROVIDER_HEALTH["classifier-fast"]=response.status_code<500
-            except Exception:
-                PROVIDER_HEALTH["classifier-fast"]=False
-            for model, env in mapping.items():
-                endpoint=os.getenv(env,"").rstrip("/")
-                if not endpoint:
-                    PROVIDER_HEALTH[model]=False
-                    continue
-                try:
-                    health_path="/ready" if model=="djev" else "/health"
-                    response=await client.get(endpoint+health_path)
-                    PROVIDER_HEALTH[model]=response.status_code<500
-                except Exception:
-                    PROVIDER_HEALTH[model]=False
-        await asyncio.sleep(15)
+        async with httpx.AsyncClient(timeout=8) as client:
+            await asyncio.gather(*(probe_one(client,m,CATALOGUE[m]) for m in MODELS if m in CATALOGUE and MODELS[m].get("configured")),return_exceptions=True)
+        await asyncio.sleep(30)
 
 app = FastAPI(title="Jev Router", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=APP_URL.startswith("https://"), max_age=86400 * 14)
 
 @app.middleware("http")
 async def canonical_host(request: Request, call_next):
-    if APP_URL.startswith("https://") and request.url.hostname in {
-        "www.jev-router.com",
-        "jev-router.app.mintapis.com",
-    }:
-        target = APP_URL + request.url.path
+    host=(request.url.hostname or "").lower()
+    if host in ALIAS_HOSTS and host!=CANONICAL_HOST:
+        target = "https://"+CANONICAL_HOST + request.url.path
         if request.url.query:
             target += "?" + request.url.query
-        return RedirectResponse(target, status_code=308)
+        # 301 for page views; 308 keeps POST bodies intact for API clients on old hosts.
+        return RedirectResponse(target, status_code=301 if request.method in ("GET","HEAD") else 308)
     return await call_next(request)
 
 @app.middleware("http")
@@ -281,7 +301,7 @@ def enforce_rate_limit(key_id: int) -> None:
     with dbconn() as db:
         db.execute("SELECT pg_advisory_xact_lock(?)",(key_id,)) if DATABASE_URL else db.execute("BEGIN IMMEDIATE")
         row=db.execute("SELECT requests FROM rate_windows WHERE api_key_id=? AND bucket_window=?",(key_id,window)).fetchone()
-        if row and int(row["requests"])>=120: raise HTTPException(429,"API key rate limit exceeded",headers={"Retry-After":"60"})
+        if row and int(row["requests"])>=RATE_LIMIT_PER_MINUTE: raise HTTPException(429,"API key rate limit exceeded",headers={"Retry-After":"60"})
         db.execute("INSERT INTO rate_windows(api_key_id,bucket_window,requests) VALUES(?,?,1) ON CONFLICT(api_key_id,bucket_window) DO UPDATE SET requests=rate_windows.requests+1",(key_id,window))
 
 def esc(value: Any) -> str:
@@ -292,15 +312,17 @@ CSS = """
 :root{color-scheme:light dark;--bg:#fafafa;--panel:#fff;--text:#171717;--muted:#666;--line:#ddd;--accent:#5d5fef;--soft:#f3f3f7}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 Inter,ui-sans-serif,system-ui,sans-serif}nav,main,footer{max-width:1120px;margin:auto;padding:20px 28px}nav{display:flex;align-items:center;gap:24px;border-bottom:1px solid var(--line)}nav .brand{font-weight:750;font-size:18px;margin-right:auto;color:var(--text)}a{color:inherit;text-decoration:none}nav a:not(.brand),.muted{color:var(--muted)}a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:3px}.skip{position:absolute;left:-9999px}.skip:focus{left:12px;top:12px;background:var(--panel);padding:10px;z-index:10}.hero{padding:92px 0 68px;max-width:780px}.eyebrow{font-size:13px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.08em}h1{font-size:clamp(42px,7vw,72px);line-height:1.02;letter-spacing:-.055em;margin:16px 0 24px}h2{font-size:30px;letter-spacing:-.03em;margin-top:48px}h3{margin:0 0 8px}.lead{font-size:20px;color:var(--muted);max-width:700px}.actions{display:flex;gap:12px;margin-top:30px;flex-wrap:wrap}.button,button{display:inline-flex;border:1px solid var(--line);background:var(--panel);padding:10px 16px;border-radius:8px;font:inherit;cursor:pointer}.primary{background:var(--text);color:var(--bg);border-color:var(--text)}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}.badge{display:inline-block;padding:3px 8px;border-radius:99px;background:var(--soft);font-size:12px}.live{color:#087a45}.offline{color:#946200}.byok{color:#5d5fef}code,pre{font:13px/1.5 ui-monospace,SFMono-Regular,monospace}pre{padding:18px;background:#111218;color:#e8e8ec;border-radius:10px;overflow:auto}.notice{border-left:3px solid var(--accent);padding:10px 16px;background:var(--soft)}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:11px;border-bottom:1px solid var(--line);vertical-align:top}input{width:100%;max-width:420px;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text)}footer{color:var(--muted);margin-top:70px;border-top:1px solid var(--line);display:flex;gap:18px;flex-wrap:wrap}@media(max-width:760px){nav{gap:12px;flex-wrap:wrap;padding:16px}nav .brand{flex-basis:100%;margin-right:0}nav a:not(.brand){white-space:nowrap}.hero{padding:55px 0}.grid{grid-template-columns:1fr}main{padding:16px}h1{font-size:44px}}@media(prefers-color-scheme:dark){:root{--bg:#0e0f12;--panel:#15161a;--text:#f2f2f3;--muted:#a0a0a7;--line:#292a30;--accent:#8b8dff;--soft:#1d1e24}}
 """
 
+DISCLAIMER="Jev is a trademark of TypeSafe AI, Inc. Jev Router is an independent service by productivity-boost.com Betriebs UG &amp; Co. KG and is not affiliated with, endorsed by, or sponsored by TypeSafe AI. We do not provide access to TypeSafe's Jev model. &ldquo;Jev-class&rdquo; describes the typed decision-API format (choice, noul, score) only."
+
 def page(title: str, body: str, user=None) -> HTMLResponse:
     auth = '<a href="/dashboard">Dashboard</a><a href="/logout">Sign out</a>' if user else '<a href="/login">Sign in</a>'
-    return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Open decision models (Jev-class), hosted on demand."><title>{esc(title)} · Jev Router</title><style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a></footer></body></html>''')
+    return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="One API for open decision models (Jev-class): choice, yes/no and score decisions routed by published benchmark scores, price and latency."><title>{esc(title)} · Jev Router</title><style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/pricing">Pricing</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/pricing">Pricing</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a><p class="muted" style="flex-basis:100%;font-size:13px;margin:0">{DISCLAIMER}</p></footer></body></html>''')
 
 @app.on_event("startup")
 async def startup():
     global HEALTH_TASK, HOSTING_TASK
     ensure_db(); reconcile_stale_reservations()
-    HEALTH_TASK=asyncio.create_task(probe_providers())
+    HEALTH_TASK=asyncio.create_task(probe_providers()) if os.getenv("PROBE_PROVIDERS","true").lower()!="false" else None
     HOSTING_TASK=asyncio.create_task(hosting_reaper_loop()) if HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN else None
 
 @app.on_event("shutdown")
@@ -395,71 +417,159 @@ async def hosted_inference(instance_id: str, request: Request):
     with dbconn() as db: db.execute("UPDATE hosting_instances SET last_used_at=? WHERE id=? AND status='running'",(now_iso(),instance_id))
     return result
 
+ROUTING_POLICY=("Concrete model IDs are never rerouted except to the fallback list you send. "
+    "auto (default) ranks healthy models that support the request's modality and question types. "
+    "prefer=quality (default): highest published score first (JevBench v1.4.2 for text, ImageJevBench v0.1 for images; with route.task, the matching JevBench tier). "
+    "prefer=price: lowest price first. prefer=latency: lowest observed median latency first. "
+    "prefer=balanced: score minus 10 points per second of latency and minus 10 points per tenfold price above USD 0.01 per 1,000 decisions. "
+    "Ties break by price, then latency, then model ID. Up to 4 models are tried in order; failed attempts are never charged. "
+    "Unbenchmarked models are used by auto only after all benchmarked ones. "
+    "jev-class and image-jev-class are aliases of auto with prefer=quality restricted to benchmarked models.")
+
+HOME_EXAMPLE = """curl https://jev-router.com/v1/systemone -H "Authorization: Bearer jvr_..." -H "Content-Type: application/json" -d '{
+  "model": "auto",
+  "state": "Customer: my parcel arrived crushed and the mug inside is broken.",
+  "questions": {
+    "intent": {"type": "choice", "criteria": {"refund": "wants money back", "replacement": "wants a new item", "info": "just asking"}},
+    "upset":  {"type": "noul", "instructions": "Is the customer upset?"}
+  }
+}'"""
+
+DOC_EXAMPLE = """curl https://jev-router.com/v1/systemone \\
+  -H "Authorization: Bearer jvr_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"auto","route":{"prefer":"quality","task":"judgement","max_price_per_1k":0.05},"state":"Mia owns a red bicycle.","questions":{"color":{"type":"choice","instructions":"What colour is the bicycle?","criteria":{"red":null,"blue":null}}}}'"""
+
+IMAGE_EXAMPLE = """curl https://jev-router.com/v1/multimodal \\
+  -H "Authorization: Bearer jvr_..." -H "Content-Type: application/json" \\
+  -d '{"model":"auto","state":"Photo from a delivery driver.","images":["data:image/jpeg;base64,..."],"questions":{"damaged":{"type":"noul","instructions":"Is the parcel visibly damaged?"}}}'"""
+
+OPENAI_EXAMPLE = """from openai import OpenAI
+client = OpenAI(base_url="https://jev-router.com/v1", api_key="jvr_...")
+r = client.chat.completions.create(
+    model="auto",
+    messages=[{"role": "user", "content": "Cancel my subscription, this is the third outage this week."}],
+    extra_body={"questions": {
+        "churn_risk": {"type": "score", "criteria": ["none", "low", "medium", "high"]},
+        "topic": {"type": "choice", "criteria": {"billing": None, "outage": None, "feature": None}}}},
+)
+print(r.choices[0].message.content)   # {"answers": {...}}
+print(r.model)                        # the concrete model that answered"""
+
+RESPONSE_EXAMPLE = """{"answers": {"color": {"type": "choice", "choice": "red", "confidence": 0.97}},
+ "model": "laya-421m",
+ "routing": {"requested": "auto", "answered_by": "laya-421m", "attempts": [], "price_usd_per_1k": 0.01, "billing": "paid"}}"""
+
+def bench_cell(v: dict[str, Any]) -> str:
+    parts=[]
+    j=v.get("jevbench"); i=v.get("imagejevbench")
+    if j and j.get("score") is not None: parts.append(f'JevBench {esc(j["version"])}: <strong>{float(j["score"]):.1f}</strong>'+(f' (#{j["rank"]})' if j.get("rank") else ''))
+    if i and i.get("score") is not None: parts.append(f'ImageJevBench {esc(i["version"])}: <strong>{float(i["score"]):.1f}</strong>'+(f' (#{i["rank"]})' if i.get("rank") else ''))
+    return "<br>".join(parts) or '<span class="muted">not benchmarked</span>'
+
+def live_routes() -> list[str]:
+    return [k for k,v in public_models().items() if k not in META_MODELS and k!="stripe-test-paid" and v["status"] in ("live","unknown") and v.get("configured",True)]
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     user=current_user(request)
-    hosting_ready=bool(HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN)
-    if hosting_ready:
-        eyebrow="Open decision models · hosted on demand"
-        headline="Open Jev-class models without running the GPUs yourself."
-        lead="Start a dedicated model when you need it, see its cold-start estimate and live hosted-time meter, then let it turn cold after inactivity. You pay the GPU cost plus a disclosed small margin, per minute, from prepaid credit."
-        primary='<a class="button primary" href="/login">Start a model</a>'
-        notice=""
-    else:
-        eyebrow="Open decision models · shared API live"
-        headline="Use open Jev-class decision models through one API."
-        lead="The shared text API is live now, with transparent model selection and a free route. Dedicated on-demand GPUs are not available yet."
-        primary='<a class="button primary" href="/docs">Use the live API</a>'
-        notice='<p class="notice"><strong>Dedicated hosting is currently unavailable.</strong> You can still use the live shared routes and compare every model.</p>'
-    body=f'''<section class="hero"><div class="eyebrow">{eyebrow}</div><h1>{headline}</h1><p class="lead">{lead}</p>{notice}<div class="actions">{primary}<a class="button" href="/models-page">Compare models</a></div></section><section class="grid"><div class="card"><h3>Dedicated on demand</h3><p class="muted">One GPU instance per start, with adjustable 2–60 minute idle shutdown and automatic zero-balance stop.</p></div><div class="card"><h3>Shared decisions</h3><p class="muted">Warm models can also be used through per-decision routes, including transparent score-ordered meta routes.</p></div><div class="card"><h3>Guarded spend</h3><p class="muted">Prepaid only, with account and global concurrency limits, a daily provider-spend ceiling, and provider-verified orphan cleanup.</p></div></section>'''
-    return page("Open decision models, on demand", body, user)
+    live=live_routes()
+    body=f'''<section class="hero"><div class="eyebrow">Open decision models · one API</div><h1>Typed decisions from the best open model that is up right now.</h1><p class="lead">Ask choice, yes/no and score questions about text or images. Jev Router picks the model from published JevBench and ImageJevBench scores, price and live latency, fails over automatically, and tells you which model answered and what it cost.</p><div class="actions"><a class="button primary" href="/login">Get an API key</a><a class="button" href="/models-page">See {len(CATALOGUE)} catalogued systems</a><a class="button" href="/docs">Read the docs</a></div></section>
+<section class="grid"><div class="card"><h3>Routed by published scores</h3><p class="muted"><code>auto</code> follows one public rule: best benchmark score among healthy models, or the cheapest, fastest or best-balanced if you ask. {len(live)} routes are live now.</p></div><div class="card"><h3>Two API shapes</h3><p class="muted">A decision API (<code>/v1/systemone</code>, <code>/v1/multimodal</code>) and an OpenAI-compatible <code>/v1/chat/completions</code> with typed <code>questions</code>.</p></div><div class="card"><h3>Prepaid, capped, transparent</h3><p class="muted">Per-decision prices from USD 0.01 per 1,000. Prepaid credit via Stripe, daily spend caps, failed calls never charged, unused credit refundable.</p></div></section>
+<h2>One request</h2><pre>{esc(HOME_EXAMPLE)}</pre><p class="muted">The response contains the typed answers, the model that answered, any attempts it failed over from, and the cost in the <code>X-Jev-Cost-Usd</code> header.</p>'''
+    return page("One API for open decision models", body, user)
 
 @app.get("/models")
-def models(): return {"object":"list","data":[{"id":k,**v} for k,v in public_models().items()],"routing_policy":"Concrete IDs are never rerouted. jev-class uses descending text JevBench score among healthy models; image-jev-class uses descending public-pilot-80 score among healthy image models. The next score is fallback; ties use model ID. Price and response model are those of the concrete model that answers."}
+def models(): return {"object":"list","data":[{"id":k,**v} for k,v in public_models().items()],"listed_only":[{f:v.get(f) for f in ("id","display","vendor","homepage","terms_basis","terms_url","jevbench","imagejevbench")} for v in listed_models()],"routing_policy":ROUTING_POLICY}
+
+def status_badge(s: str) -> str:
+    cls={"live":"live","unknown":"live"}.get(s,"offline")
+    label={"unknown":"live"}.get(s,s)
+    return f'<span class="badge {cls}">{esc(label)}</span>'
+
+def best_score(v: dict[str, Any]) -> float:
+    return float((v.get("jevbench") or {}).get("score") or (v.get("imagejevbench") or {}).get("score") or 0)
 
 @app.get("/models-page", response_class=HTMLResponse)
 def models_page(request: Request):
-    def bench(v):
-        parts=[]
-        if v.get("jevbench"): parts.append(f'{v["jevbench"]["score"]} ({v["jevbench"]["track"]})')
-        if v.get("multimodal_benchmark"): parts.append(f'{v["multimodal_benchmark"]["score"]}% ({v["multimodal_benchmark"]["track"]})')
-        return "<br>".join(map(esc,parts)) or "—"
-    rows="".join(f'<tr><th scope="row"><strong>{esc(k)}</strong><br><span class="muted">{esc(v["provider"])}</span></th><td><span class="badge {v["status"]}">{esc(v["status"])}</span></td><td>{esc(", ".join(v["modalities"]))}</td><td>{esc(v["billing"])}</td><td>{bench(v)}</td></tr>' for k,v in public_models().items())
-    hosting_ready=bool(HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN)
-    availability='<span class="badge live">available</span>' if hosting_ready else '<span class="badge offline">unavailable</span>'
-    hosted="".join(f'<tr><th scope="row"><strong>{esc(k)}</strong><br><span class="muted">{esc(v["gpu"])}</span></th><td>{availability}</td><td>{esc(", ".join(v["modalities"]))}</td><td>USD {v["price_microusd_per_minute"]/1_000_000:.5f}/min<br><span class="muted">provider USD {v["provider_microusd_per_minute"]/1_000_000:.5f} + {v["margin_percent"]}%</span></td><td>about {v["cold_start_seconds"]//60} min</td></tr>' for k,v in ON_DEMAND_MODELS.items())
-    hosting_notice='' if hosting_ready else '<p class="notice"><strong>Dedicated hosting is currently unavailable.</strong> Shared routes below remain usable.</p>'
-    return page("Models", '<h1 style="font-size:52px">Open decision models</h1><p class="lead">Start a dedicated Jev-class model by the minute, or use a warm shared route per decision.</p><h2>Hosted on demand</h2>'+hosting_notice+'<div class="table-wrap"><table><thead><tr><th>Model</th><th>Availability</th><th>Input</th><th>Hosted price</th><th>Cold start</th></tr></thead><tbody>'+hosted+'</tbody></table></div><p class="muted">Hosted time is rounded up to started minutes. Idle shutdown defaults to 10 minutes and can be set from 2 to 60 minutes.</p><h2>Shared per-decision routes</h2><div class="notice"><strong>Published routing rule:</strong> <code>jev-class</code> tries healthy text models by descending JevBench score. <code>image-jev-class</code> uses the separate image benchmark. The concrete answer model and its price are always returned.</div><div class="table-wrap"><table><thead><tr><th>Model</th><th>Status</th><th>Input</th><th>Price</th><th>Benchmark track</th></tr></thead><tbody>'+rows+'</tbody></table></div>', current_user(request))
+    pm=public_models()
+    concrete=sorted(((k,v) for k,v in pm.items() if k not in META_MODELS),key=lambda kv:(-best_score(kv[1]),kv[0]))
+    rows="".join(f'<tr><th scope="row"><strong>{esc(k)}</strong><br><span class="muted">{esc(v.get("display",""))} · {esc(v["provider"])}</span></th><td>{status_badge(v["status"])}</td><td>{esc(", ".join(v["modalities"]))}<br><span class="muted">{esc(", ".join(v.get("question_types",[])))}</span></td><td>{esc(v["billing"])}</td><td>{bench_cell(v)}</td><td class="muted" style="font-size:13px">{esc(v["terms"])}</td></tr>' for k,v in concrete)
+    listed="".join(f'<tr><th scope="row"><strong>{esc(v["display"])}</strong><br><span class="muted">{esc(v["vendor"])}</span></th><td>{bench_cell(v)}</td><td class="muted" style="font-size:13px">{esc(v["terms_basis"])}</td><td>'+(f'<a href="{esc(v["homepage"])}" rel="noopener">Provider ↗</a>' if v.get("homepage") else '')+'</td></tr>' for v in sorted(listed_models(),key=lambda v:(-best_score(v),v["display"])))
+    metas="".join(f'<tr><th scope="row"><code>{esc(k)}</code></th><td>{status_badge(pm[k]["status"])}</td><td>{esc(v["terms"])}</td><td class="muted">{esc(" → ".join(pm[k].get("routing_order",[])[:6]) or "—")}</td></tr>' for k,v in META_MODELS.items())
+    hosting=""
+    if HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN:
+        hosted="".join(f'<tr><th scope="row"><strong>{esc(k)}</strong><br><span class="muted">{esc(v["gpu"])}</span></th><td>{esc(", ".join(v["modalities"]))}</td><td>USD {v["price_microusd_per_minute"]/1_000_000:.5f}/min</td><td>about {v["cold_start_seconds"]//60} min</td></tr>' for k,v in ON_DEMAND_MODELS.items())
+        hosting='<h2>Dedicated GPUs on demand</h2><div class="table-wrap"><table><thead><tr><th>Model</th><th>Input</th><th>Price</th><th>Cold start</th></tr></thead><tbody>'+hosted+'</tbody></table></div>'
+    body=f'''<h1 style="font-size:52px">Models</h1><p class="lead">Every Jev-class decision system we found reachable online, with the licence or terms basis on which we route to it, or why we do not. Scores are the published JevBench v1.4.2 and ImageJevBench v0.1 results from benchmarkheaven.com, measured independently and never through this router.</p>
+<h2>Routing aliases</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Rule</th><th>Current order (text, choice)</th></tr></thead><tbody>{metas}</tbody></table></div>
+<h2>Routable models</h2><div class="table-wrap"><table><thead><tr><th>Model</th><th>Status</th><th>Input · questions</th><th>Price</th><th>Published score</th><th>Why we may route</th></tr></thead><tbody>{rows}</tbody></table></div>
+<h2>Listed for comparison, not routed</h2><p class="muted">These systems are online, but their licence or terms do not let a third party route or resell traffic, or they are an author's free demo. Use them directly with their provider.</p><div class="table-wrap"><table><thead><tr><th>System</th><th>Published score</th><th>Why not routed</th><th></th></tr></thead><tbody>{listed}</tbody></table></div>{hosting}'''
+    return page("Models", body, current_user(request))
 
-DOC_EXAMPLE='''curl https://jev-router.com/v1/systemone \\
-  -H "Authorization: Bearer jvr_…" \\
-  -H "Content-Type: application/json" \\
-  -d '{"model":"classifier-fast","state":"Mia owns a red bicycle.","questions":{"color":{"type":"choice","instructions":"What color?","criteria":{"red":null,"blue":null}}}}' '''
+@app.get("/pricing", response_class=HTMLResponse)
+def pricing(request: Request):
+    paid=sorted(((k,v) for k,v in MODELS.items() if v["routing"]=="paid" and k!="stripe-test-paid"),key=lambda kv:(kv[1]["price_per_1k_cents"],-best_score(kv[1])))
+    rows="".join(f'<tr><th scope="row">{esc(k)}<br><span class="muted">{esc(v.get("display",""))}</span></th><td>USD {v["price_per_1k_cents"]/100:.2f}</td><td>USD {v["price_per_1k_cents"]*10:.2f}</td><td>{bench_cell(v)}</td></tr>' for k,v in paid) or '<tr><td colspan=4 class="muted">No paid models are configured right now.</td></tr>'
+    free=", ".join(esc(k) for k,v in MODELS.items() if v["routing"]=="free") or "none"
+    byok=", ".join(esc(k) for k,v in MODELS.items() if v["routing"]=="byok") or "none right now"
+    body=f'''<h1 style="font-size:52px">Pricing</h1><p class="lead">Pay per decision from prepaid credit. No subscription, no monthly minimum. One decision is one request, however many questions it contains.</p>
+<div class="table-wrap"><table><thead><tr><th>Model we host</th><th>Per 1,000 decisions</th><th>Per 1,000,000 decisions</th><th>Published score</th></tr></thead><tbody>{rows}</tbody></table></div>
+<div class="grid" style="margin-top:24px"><div class="card"><h3>Free routes</h3><p class="muted">{free}. Third-party services we route to at no charge, within their published limits.</p></div><div class="card"><h3>Bring your own key</h3><p class="muted">{byok}. Your key goes straight to that provider; we add nothing and never store it.</p></div><div class="card"><h3>Credit</h3><p class="muted">Top up USD {MIN_TOPUP_CENTS/100:.0f} to USD {MAX_TOPUP_CENTS/100:.0f} per payment by card through Stripe. Prices in USD; VAT is added where it applies. Credit does not expire. Unused credit is refundable within 14 days of purchase.</p></div></div>
+<h2>Limits</h2><p>{RATE_LIMIT_PER_MINUTE} requests per minute per API key, a daily spend cap you set yourself (default USD 100), and at most USD {DAILY_TOPUP_CAP_CENTS/100:.0f} of top-ups per account per day. Failed and failed-over attempts are never charged. <code>auto</code> requests cost the price of the model that actually answered, shown in every response.</p>'''
+    return page("Pricing", body, current_user(request))
 
 @app.get("/docs", response_class=HTMLResponse)
 def docs(request: Request):
-    text_meta=DOC_EXAMPLE.replace('"classifier-fast"','"jev-class"')
-    image_meta='''curl https://jev-router.com/v1/multimodal \\
-  -H "Authorization: Bearer jvr_…" -H "Content-Type: application/json" \\
-  -d '{"model":"image-jev-class","state":"Classify the image.","images":["data:image/jpeg;base64,…"],"questions":{"scene":{"type":"choice","criteria":{"indoor":null,"outdoor":null}}}}' '''
-    return page("API docs", f'''<h1 style="font-size:52px">API docs</h1><p class="lead">Open decision models (Jev-class), with concrete or transparent meta routing.</p><p class="notice">The original Jev is available directly from TypeSafe; it is not offered by Jev Router.</p><h2>Concrete text model</h2><pre>{esc(DOC_EXAMPLE)}</pre><h2>Text meta model</h2><pre>{esc(text_meta)}</pre><h2>Image meta model</h2><pre>{esc(image_meta)}</pre><p><code>image-jev-class</code> uses up to {MAX_IMAGES} bounded PNG/JPEG/WebP data URLs.</p><h2>On-demand lifecycle</h2><p>Signed-in users start and stop dedicated instances from the dashboard. <code>GET /hosting/instances</code> returns hosted seconds, billed minutes, and the live meter total. Hosted time is prepaid and rounded up to each started minute. The provider-verified reaper enforces idle, balance, concurrency, and global spend limits.</p><h2>Meta routing policy</h2><p><code>jev-class</code> tries healthy text models in descending JevBench order. <code>image-jev-class</code> uses the separate public-pilot-80 image order. The next score is fallback; model ID breaks ties. The concrete answer model is returned in JSON and <code>X-Jev-Model</code>. Its listed price applies.</p><h2>Python</h2><pre>import requests\nrequests.post("https://jev-router.com/v1/systemone", headers={{"Authorization":"Bearer jvr_…"}}, json={{...}}).json()</pre>''', current_user(request))
+    body=f'''<h1 style="font-size:52px">API docs</h1><p class="lead">Typed decisions over text and images. Authenticate with an API key from the dashboard: <code>Authorization: Bearer jvr_...</code></p>
+<h2>Decision API</h2><p><code>POST /v1/systemone</code> (text) and <code>POST /v1/multimodal</code> (up to {MAX_IMAGES} PNG/JPEG/WebP data URLs, 2 MB each). Body: <code>state</code> (text or JSON), <code>questions</code> (up to 32), optional <code>model</code> (default <code>auto</code>), <code>fallback</code>, <code>route</code>, <code>provider_keys</code>.</p>
+<ul><li><code>choice</code>: <code>criteria</code> is an object of options; answer has <code>choice</code>, <code>confidence</code> and, where the model provides them, <code>probabilities</code>.</li><li><code>noul</code>: yes/no; answer <code>noul</code> is the probability of yes (0 to 1).</li><li><code>score</code>: <code>criteria</code> is an ordered list of levels; answer <code>score</code> is the index of the chosen level.</li></ul>
+<pre>{esc(DOC_EXAMPLE)}</pre><h3>Response</h3><pre>{esc(RESPONSE_EXAMPLE)}</pre>
+<h2>Images</h2><pre>{esc(IMAGE_EXAMPLE)}</pre>
+<h2>OpenAI-compatible</h2><p><code>POST /v1/chat/completions</code> and <code>GET /v1/models</code>. Put typed questions in the extra top-level <code>questions</code> field; the chat messages become the state. The assistant message content is the JSON answers object, and the full decision is in <code>decision</code>. You can also send a complete decision request as JSON in the last user message.</p><pre>{esc(OPENAI_EXAMPLE)}</pre>
+<h2 id="routing">Routing</h2><p>{esc(ROUTING_POLICY)}</p><ul><li><code>route.prefer</code>: <code>quality</code>, <code>balanced</code>, <code>price</code> or <code>latency</code></li><li><code>route.task</code>: <code>general</code>, <code>classification</code>, <code>judgement</code>, <code>hard</code> or <code>easy</code>; ranks by that JevBench tier's accuracy.</li><li><code>route.max_price_per_1k</code> (USD), <code>route.max_latency_ms</code>, <code>route.benchmarked_only</code></li><li><code>fallback</code>: extra model IDs tried after the first choice.</li></ul><p>Health: every model is checked in the background, and a circuit breaker removes a model for 60 seconds after two consecutive failures. Every response names the answering model (<code>X-Jev-Model</code>), its latency and its cost.</p>
+<h2>Bring your own key</h2><p>For providers marked BYOK, pass <code>"provider_keys": {{"vendor": "key"}}</code>. The key is sent only to that provider for this request and is never stored or logged. We charge nothing for these calls.</p>
+<h2>Errors</h2><p><code>401</code> bad key · <code>402</code> insufficient credit or your daily cap · <code>429</code> rate limit · <code>502</code> every attempted model failed (nothing charged) · <code>503</code> no eligible model, or the operator's daily cap.</p>
+<p class="notice">TypeSafe's Jev is not available through Jev Router; use it directly from TypeSafe AI.</p>'''
+    return page("API docs", body, current_user(request))
 
+LEGAL_UPDATED="26 September 2026"
+OPERATOR="productivity-boost.com Betriebs UG (haftungsbeschränkt) &amp; Co. KG, Reichenbergerstr. 2, 94036 Passau, Germany"
 LEGAL={
-"terms":("Terms of service","Jev Router is a prepaid gateway for open decision models. Shared usage is charged per decision. Dedicated hosting is charged for every started minute until stop or automatic shutdown, at the published provider cost plus disclosed margin. No SLA or warranty is provided. We may enforce rate, concurrency, idle, balance, and spend limits."),
-"privacy":("Privacy","We store your Google account identifier, email, API-key hashes, payment references, credit ledger, and aggregate usage metadata. We do not store request bodies or images. The provider you explicitly select receives request content. Images can contain personal data and metadata; remove anything you do not intend to send. Stripe processes payments and receipts; Google handles sign-in. Account and billing records are retained as legally required. Contact: florian.standhartinger@gmail.com."),
-"refunds":("Refund policy","Unused prepaid credits may be refunded on request within 14 days of purchase where legally required. Consumed credits are non-refundable because the compute service has already been delivered. Chargebacks or duplicate payments are reviewed individually. Contact us from the purchasing email address."),
-"impressum":("Impressum","productivity-boost.com Betriebs UG (haftungsbeschränkt) &amp; Co. KG<br>Passau, Germany<br>VAT ID: DE296812612<br>Responsible: Florian Standhartinger<br>Email: florian.standhartinger@gmail.com")}
+"terms":("Terms of service",f"""<p>These terms govern your use of Jev Router (jev-router.com). By creating an account or calling the API you agree to them.</p>
+<h3>1. Who you contract with</h3><p>Jev Router is operated by {OPERATOR}, registered at Amtsgericht Passau under HRB 8453, VAT ID DE296812612 ("we"). Full details are in the <a href="/impressum">Impressum</a>.</p>
+<h3>2. The service</h3><p>Jev Router forwards typed decision requests (choice, yes/no, score) to decision models: models we host ourselves, third-party services whose terms allow it, and, if you supply your own key, providers you have an account with. The model list, prices and routing rule are published on the <a href="/models-page">models</a>, <a href="/pricing">pricing</a> and <a href="/docs#routing">docs</a> pages. Model outputs are probabilistic and can be wrong. You are responsible for how you use them, in particular for decisions with legal or similarly significant effects on people, which need human review.</p>
+<h3>3. Accounts and keys</h3><p>You sign in with Google, must be at least 18, and must be entitled to accept these terms for any organisation you act for. You are responsible for your API keys and all usage made with them. Do not put keys into client-side code.</p>
+<h3>4. Acceptable use</h3><p>No unlawful content; no attempts to overload, probe or circumvent limits; no use of the service to attack third parties; no resale of access without our written consent; no personal data you have no lawful basis to process. You must respect the terms of any provider you reach with your own key.</p>
+<h3>5. Credit and payment</h3><p>The service runs on prepaid credit bought through Stripe. Usage is charged per decision at the price shown for the model that answered. Credit does not expire, has no cash value and is not transferable. We never charge you automatically. Prices are in US dollars; VAT is added where it applies. Refunds: see the <a href="/refunds">refund policy</a>.</p>
+<h3>6. Availability and limits</h3><p>The service is provided without a service level agreement. Models can be unavailable; the router then fails over or returns an error without charging. We may enforce rate, spend, top-up and abuse limits, and may change the model list and prices; price changes never apply retroactively.</p>
+<h3>7. Suspension</h3><p>We may suspend accounts that breach these terms or endanger the service or third parties; where possible we warn you first. Unused credit of a suspended account is refunded unless the suspension is due to fraud.</p>
+<h3>8. Liability</h3><p>We are liable without limitation for intent and gross negligence, for injury to life, body or health, and under the German Product Liability Act. For ordinary negligence we are liable only for breach of essential contractual obligations, limited to the foreseeable damage typical for this contract. Otherwise our liability is excluded. For businesses, total liability per 12 months is limited to the amount paid to us in that period.</p>
+<h3>9. Law and changes</h3><p>German law applies, excluding the UN Sales Convention; for consumers, the mandatory law of their country of residence remains applicable. For businesses, the courts at our registered seat have exclusive jurisdiction. We announce material changes to these terms by email 30 days in advance.</p>
+<h3>10. Trademarks</h3><p>Jev is a trademark of TypeSafe AI, Inc. Jev Router is independent, is not affiliated with, endorsed by or sponsored by TypeSafe AI, and does not provide access to TypeSafe's Jev. Other model names belong to their respective owners.</p>
+<p>Contact: info@productivity-boost.com</p>"""),
+"privacy":("Privacy policy",f"""<p>Controller (Art. 4(7) GDPR): {OPERATOR}, represented by Florian Standhartinger, info@productivity-boost.com. Supervisory authority: Bayerisches Landesamt für Datenschutzaufsicht (BayLDA), Ansbach.</p>
+<h3>What we store</h3><p><strong>Account:</strong> Google account identifier, email address and name from Google sign-in (scopes openid, email, profile). <strong>API keys:</strong> a prefix and a hash, never the key itself. <strong>Billing:</strong> credit ledger and Stripe checkout and payment references; card data is handled only by Stripe. <strong>Usage:</strong> per request the time, model, provider, price and latency. Legal basis: performance of the contract (Art. 6(1)(b) GDPR) and legal retention duties (Art. 6(1)(c)).</p>
+<h3>Request content</h3><p>We do not store request bodies, answers or images. Their content is forwarded only to the model that handles the request: our own servers in Germany for models we host, or the third-party provider named on the models page when that model is selected directly or chosen by <code>auto</code>. Use the <code>model</code> and <code>route</code> settings to restrict which providers receive your data. Provider keys you pass for bring-your-own-key calls are forwarded to that provider and never stored.</p>
+<h3>Logs and cookies</h3><p>Server logs contain the request path, status and duration. IP addresses are processed for rate limiting and security (Art. 6(1)(f)). We use one strictly necessary session cookie for sign-in, and no tracking or advertising cookies.</p>
+<h3>Processors</h3><p>Stripe (payments), Google (sign-in), Hetzner (hosting in Germany), Neon (database). Stripe and Google may process data outside the EU under standard contractual clauses.</p>
+<h3>Retention and rights</h3><p>Account data is kept while your account exists; accounting records for the periods required by German commercial and tax law. You have the rights of access, rectification, erasure, restriction, portability and objection, and may complain to a supervisory authority. Write to info@productivity-boost.com.</p>"""),
+"refunds":("Refund policy","""<p>Unused prepaid credit can be refunded in full within 14 days of purchase: email info@productivity-boost.com from your account address with the date of the top-up. After 14 days, unused credit is still refunded on request if we discontinue the service or raise prices to your disadvantage.</p><p>Credit already used for decisions is not refundable, because the service has been delivered. If you are a consumer in the EU you have a statutory 14-day right of withdrawal; by starting to use the credit you ask us to begin the service immediately, and the withdrawal then covers only the unused part.</p><p>Refunds go to the original payment method through Stripe, and the corresponding credit is removed from your balance. Failed requests are never charged in the first place.</p>"""),
+"impressum":("Impressum","""<p>Information according to § 5 DDG</p><p><strong>productivity-boost.com Betriebs UG (haftungsbeschränkt) &amp; Co. KG</strong><br>Reichenbergerstr. 2<br>94036 Passau<br>Germany</p><p>Represented by Florian Standhartinger</p><p>Email: info@productivity-boost.com<br>Telephone: +49 178 1981631</p><p>Register court: Amtsgericht Passau, register number HRB 8453</p><p>VAT ID according to § 27a UStG: DE296812612</p><p>Responsible for content according to § 18 (2) MStV: Florian Standhartinger, address as above.</p><p>EU online dispute resolution: <a href="https://ec.europa.eu/consumers/odr" rel="noopener">ec.europa.eu/consumers/odr</a>. We are neither obliged nor willing to take part in dispute resolution proceedings before a consumer arbitration board.</p>""")}
 
 for _slug,(_title,_text) in LEGAL.items():
     def make_legal(slug=_slug,title=_title,text=_text):
         @app.get("/"+slug, response_class=HTMLResponse, name="legal_"+slug)
-        def legal(request: Request): return page(title, f'<h1 style="font-size:52px">{title}</h1><div class="card"><p>{text}</p><p class="muted">Last updated 21 September 2026.</p></div>', current_user(request))
+        def legal(request: Request): return page(title, f'<h1 style="font-size:52px">{title}</h1><div class="card">{text}<p class="muted">Last updated {LEGAL_UPDATED}.</p></div>', current_user(request))
     make_legal()
 
 @app.get("/status", response_class=HTMLResponse)
 def status(request: Request):
-    live=sum(v["status"]=="live" for v in public_models().values())
-    return page("Status", f'<h1 style="font-size:52px">Status</h1><div class="card"><h3><span class="live">●</span> Gateway operational</h3><p class="muted">{live} routes currently report live. Scale-to-zero models may have a cold start. Check machine-readable state at <a href="/models"><code>/models</code></a>.</p></div>', current_user(request))
+    pm=public_models()
+    concrete=[(k,v) for k,v in pm.items() if k not in META_MODELS]
+    rows="".join(f'<tr><th scope="row">{esc(k)}</th><td>{status_badge(v["status"])}</td><td>{(str(round(v["observed_latency_ms"]))+" ms") if v.get("observed_latency_ms") else "—"}</td></tr>' for k,v in concrete)
+    live=len(live_routes())
+    return page("Status", f'<h1 style="font-size:52px">Status</h1><div class="card"><h3><span class="live">●</span> Gateway operational</h3><p class="muted">{live} of {len(concrete)} routes currently report live. Machine-readable: <a href="/models"><code>/models</code></a>.</p></div><div class="table-wrap"><table><thead><tr><th>Model</th><th>Health</th><th>Observed latency (moving average)</th></tr></thead><tbody>{rows}</tbody></table></div>', current_user(request))
 
 @app.get("/login")
 def login(request: Request):
@@ -513,7 +623,8 @@ def dashboard(request: Request):
     instance_rows="".join(f'<tr><td>{esc(x["model"])}</td><td>{esc(x["status"])}</td><td><span class="host-meter" data-start="{esc(x["started_at"])}" data-rate="{int(x["price_microusd_per_minute"])}" data-billed="{int(x["billed_minutes"])}">USD {int(x["billed_minutes"])*int(x["price_microusd_per_minute"])/1_000_000:.5f}</span></td><td>{instance_action(x)}</td></tr>' for x in instances) or '<tr><td colspan=4 class="muted">No dedicated instances yet.</td></tr>'
     hosting_ready=bool(HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN)
     start_cards="".join(f'<div class="card"><h3>{esc(k)}</h3><p class="muted">{esc(v["gpu"])} · about {v["cold_start_seconds"]//60} min cold start</p><p>USD {v["price_microusd_per_minute"]/1_000_000:.5f}/min<br><span class="muted">provider cost + {v["margin_percent"]}% margin</span></p><form method="post" action="/hosting/start"><input type="hidden" name="csrf" value="{token}"><input type="hidden" name="model" value="{esc(k)}"><button class="primary" {"" if hosting_ready else "disabled"}>{"Start dedicated GPU" if hosting_ready else "Temporarily unavailable"}</button></form></div>' for k,v in ON_DEMAND_MODELS.items())
-    return page("Dashboard",f'''<h1 style="font-size:52px">Dashboard</h1><div class="grid"><div class="card"><span class="muted">Prepaid balance</span><h2>USD {balance(u["id"])/1_000_000:.2f}</h2><form method="post" action="/billing/checkout"><input type="hidden" name="csrf" value="{token}"><input type="hidden" name="checkout_nonce" value="{checkout_nonce}"><label>Top up (USD cents, minimum {MIN_TOPUP_CENTS})<input name="amount_cents" type="number" min="{MIN_TOPUP_CENTS}" value="{MIN_TOPUP_CENTS}"></label><button class="primary" type="submit">Checkout in Stripe {STRIPE_MODE} mode</button></form></div><div class="card"><h3>New API key</h3><form method="post" action="/api-keys"><input type="hidden" name="csrf" value="{token}"><label>Name<input name="name" maxlength="60" value="Default"></label><button type="submit">Create key</button></form></div><div class="card"><h3>Hosting controls</h3><form method="post" action="/hosting/settings"><input type="hidden" name="csrf" value="{token}"><label>Idle shutdown (2–60 minutes)<input name="idle_minutes" type="number" min="2" max="60" value="{idle}"></label><button>Save</button></form><p class="muted">Balance zero always stops the instance.</p></div></div><h2>Start an open decision model</h2><div class="grid">{start_cards}</div><h2>Dedicated instances</h2><div class="table-wrap"><table><tr><th>Model</th><th>Status</th><th>Live hosted-time meter</th><th>State</th></tr>{instance_rows}</table></div><h2>API keys</h2><div class="table-wrap"><table><tr><th>Name</th><th>Key</th><th>Status</th></tr>{keyrows}</table></div><h2>Shared-route usage</h2><div class="table-wrap"><table><tr><th>Model</th><th>Decisions</th><th>Charged</th></tr>{usagerows}</table></div><script>function meters(){{document.querySelectorAll('.host-meter').forEach(function(e){{var s=Date.parse(e.dataset.start),r=Number(e.dataset.rate),b=Number(e.dataset.billed),m=Math.max(b,Math.ceil((Date.now()-s)/60000));e.textContent='USD '+(m*r/1000000).toFixed(5)+' · '+m+' started min';}})}}meters();setInterval(meters,1000);</script>''',u)
+    hosting_html=(f'''<div class="grid"><div class="card"><h3>Hosting controls</h3><form method="post" action="/hosting/settings"><input type="hidden" name="csrf" value="{token}"><label>Idle shutdown (2–60 minutes)<input name="idle_minutes" type="number" min="2" max="60" value="{idle}"></label><button>Save</button></form><p class="muted">Balance zero always stops the instance.</p></div></div><h2>Start an open decision model</h2><div class="grid">{start_cards}</div><h2>Dedicated instances</h2><div class="table-wrap"><table><tr><th>Model</th><th>Status</th><th>Live hosted-time meter</th><th>State</th></tr>{instance_rows}</table></div>''') if hosting_ready else ""
+    return page("Dashboard",f'''<h1 style="font-size:52px">Dashboard</h1><div class="grid"><div class="card"><span class="muted">Prepaid balance</span><h2>USD {balance(u["id"])/1_000_000:.2f}</h2><form method="post" action="/billing/checkout"><input type="hidden" name="csrf" value="{token}"><input type="hidden" name="checkout_nonce" value="{checkout_nonce}"><label>Top up (USD cents, minimum {MIN_TOPUP_CENTS})<input name="amount_cents" type="number" min="{MIN_TOPUP_CENTS}" value="{MIN_TOPUP_CENTS}"></label><button class="primary" type="submit" {"" if PAYMENTS_ENABLED else "disabled"}>{"Add credit with Stripe" if STRIPE_MODE=="live" else "Checkout in Stripe test mode"}</button><p class="muted" style="font-size:13px">Unused credit is refundable within 14 days. By paying you ask us to start the service immediately. <a href="/terms">Terms</a> · <a href="/refunds">Refunds</a></p></form></div><div class="card"><h3>New API key</h3><form method="post" action="/api-keys"><input type="hidden" name="csrf" value="{token}"><label>Name<input name="name" maxlength="60" value="Default"></label><button type="submit">Create key</button></form></div><div class="card"><h3>Daily spend cap</h3><form method="post" action="/settings/spend-cap"><input type="hidden" name="csrf" value="{token}"><label>USD per day<input name="cap_usd" type="number" min="0" max="1000" step="0.01" value="{cap/1_000_000:.2f}"></label><button>Save</button></form><p class="muted">Requests beyond this cap return 402.</p></div></div>{hosting_html}<h2>API keys</h2><div class="table-wrap"><table><tr><th>Name</th><th>Key</th><th>Status</th></tr>{keyrows}</table></div><h2>Shared-route usage</h2><div class="table-wrap"><table><tr><th>Model</th><th>Decisions</th><th>Charged</th></tr>{usagerows}</table></div><script>function meters(){{document.querySelectorAll('.host-meter').forEach(function(e){{var s=Date.parse(e.dataset.start),r=Number(e.dataset.rate),b=Number(e.dataset.billed),m=Math.max(b,Math.ceil((Date.now()-s)/60000));e.textContent='USD '+(m*r/1000000).toFixed(5)+' · '+m+' started min';}})}}meters();setInterval(meters,1000);</script>''',u)
 
 @app.post("/settings/spend-cap")
 async def set_spend_cap(request:Request):
@@ -552,10 +663,16 @@ async def checkout(request:Request):
     u=require_user(request); form=await request.form(); check_csrf(request,form.get("csrf")); amount=int(form.get("amount_cents",0))
     nonce=str(form.get("checkout_nonce", ""))
     if not nonce or not hmac.compare_digest(nonce,request.session.get("checkout_nonce","")): raise HTTPException(409,"Stale checkout form; reload the dashboard")
-    if amount<MIN_TOPUP_CENTS or amount>100_000: raise HTTPException(400,f"Top-up must be {MIN_TOPUP_CENTS}–100000 cents")
-    if not PAYMENTS_ENABLED: raise HTTPException(503,f"Payments are disabled in Stripe {STRIPE_MODE} mode")
-    if not STRIPE_SECRET_KEY: raise HTTPException(503,"Stripe test mode is not configured")
-    data=[("mode","payment"),("success_url",APP_URL+"/dashboard?payment=success"),("cancel_url",APP_URL+"/dashboard?payment=cancelled"),("customer_email",u["email"]),("client_reference_id",str(u["id"])),("metadata[user_id]",str(u["id"])),("metadata[credits_cents]",str(amount)),("line_items[0][price_data][currency]","usd"),("line_items[0][price_data][unit_amount]",str(amount)),("line_items[0][price_data][product_data][name]","Jev Router prepaid credits"),("line_items[0][quantity]","1"),("payment_intent_data[receipt_email]",u["email"]),("automatic_tax[enabled]","true" if STRIPE_AUTOMATIC_TAX else "false")]
+    if amount<MIN_TOPUP_CENTS or amount>MAX_TOPUP_CENTS: raise HTTPException(400,f"Top-up must be {MIN_TOPUP_CENTS}–{MAX_TOPUP_CENTS} cents")
+    if not PAYMENTS_ENABLED: raise HTTPException(503,"Payments are currently disabled")
+    if not STRIPE_SECRET_KEY: raise HTTPException(503,"Stripe is not configured")
+    hour_ago=datetime.fromtimestamp(time.time()-3600,timezone.utc).isoformat(); day_start=datetime.now(timezone.utc).date().isoformat()
+    with dbconn() as db:
+        recent=int(db.execute("SELECT COUNT(*) n FROM stripe_checkout_intents WHERE user_id=? AND created_at>=?",(u["id"],hour_ago)).fetchone()["n"])
+        paid_today=int(db.execute("SELECT COALESCE(SUM(amount_cents),0) n FROM stripe_checkout_intents WHERE user_id=? AND status='paid' AND created_at>=?",(u["id"],day_start)).fetchone()["n"])
+    if recent>=CHECKOUTS_PER_HOUR: raise HTTPException(429,"Too many checkout attempts; try again in an hour",headers={"Retry-After":"3600"})
+    if paid_today+amount>DAILY_TOPUP_CAP_CENTS: raise HTTPException(400,f"Daily top-up limit is USD {DAILY_TOPUP_CAP_CENTS/100:.0f}; contact us for more")
+    data=[("mode","payment"),("success_url",APP_URL+"/dashboard?payment=success"),("cancel_url",APP_URL+"/dashboard?payment=cancelled"),("customer_email",u["email"]),("client_reference_id",str(u["id"])),("metadata[user_id]",str(u["id"])),("metadata[credits_cents]",str(amount)),("line_items[0][price_data][currency]","usd"),("line_items[0][price_data][unit_amount]",str(amount)),("line_items[0][price_data][product_data][name]","Jev Router prepaid API credit"),("line_items[0][quantity]","1"),("payment_intent_data[receipt_email]",u["email"]),("automatic_tax[enabled]","true" if STRIPE_AUTOMATIC_TAX else "false"),("metadata[app]","jev-router"),("payment_intent_data[metadata][app]","jev-router"),("payment_intent_data[metadata][user_id]",str(u["id"]))]
     async with httpx.AsyncClient(timeout=20) as client: resp=await client.post("https://api.stripe.com/v1/checkout/sessions",data=dict(data),auth=httpx.BasicAuth(STRIPE_SECRET_KEY,""),headers={"Idempotency-Key":f"topup-{u['id']}-{amount}-{nonce}"})
     if resp.status_code>=400: raise HTTPException(502,"Stripe could not create a checkout session")
     session=resp.json()
@@ -579,25 +696,40 @@ async def stripe_webhook(request:Request,stripe_signature:str|None=Header(None))
     try: event=json.loads(payload); obj=event.get("data",{}).get("object",{})
     except Exception: raise HTTPException(400,"Invalid Stripe payload")
     if not event.get("id") or not event.get("type"): raise HTTPException(400,"Invalid Stripe event")
+    # The Stripe account is shared with other products; only our own checkouts carry app=jev-router.
+    if event["type"].startswith("checkout.session.") and (obj.get("metadata") or {}).get("app")!="jev-router":
+        return {"received":True,"ignored":"not a jev-router checkout"}
+    try:
+        return process_stripe_event(event,obj)
+    except HTTPException: raise
+    except Exception:
+        # A concurrent delivery of the same event loses the unique-key race; report it as a duplicate.
+        with dbconn() as db:
+            if db.execute("SELECT 1 FROM stripe_events WHERE id=?",(event["id"],)).fetchone(): return {"received":True,"duplicate":True}
+        raise
+
+def process_stripe_event(event:dict,obj:dict):
     with dbconn() as db:
         if db.execute("SELECT 1 FROM stripe_events WHERE id=?",(event["id"],)).fetchone(): return {"received":True,"duplicate":True}
         if event["type"]=="checkout.session.completed" and obj.get("payment_status")=="paid":
-            uid=int(obj["metadata"]["user_id"]); cents=int(obj["metadata"]["credits_cents"])
-            if PAYMENTS_ENABLED:
-                expected_livemode=STRIPE_MODE=="live"
-                intent=db.execute("SELECT * FROM stripe_checkout_intents WHERE session_id=?",(obj.get("id"),)).fetchone()
-                valid=(
-                    intent and bool(obj.get("livemode"))==expected_livemode
-                    and obj.get("currency")==intent["currency"]
-                    and int(obj.get("amount_total") or 0)==int(intent["amount_cents"])
-                    and cents==int(intent["amount_cents"])
-                    and uid==int(intent["user_id"])
-                    and str(obj.get("client_reference_id"))==str(intent["user_id"])
-                )
-                if not valid: raise HTTPException(400,"Stripe checkout does not match a pending top-up")
+            try: uid=int(obj["metadata"]["user_id"]); cents=int(obj["metadata"]["credits_cents"])
+            except Exception: raise HTTPException(400,"Stripe checkout has no top-up metadata")
+            # Every credit must match a checkout this app created, in this mode, for this user and amount.
+            expected_livemode=STRIPE_MODE=="live"
+            intent=db.execute("SELECT * FROM stripe_checkout_intents WHERE session_id=?",(obj.get("id"),)).fetchone()
+            charged=int((obj.get("amount_subtotal") if STRIPE_AUTOMATIC_TAX else obj.get("amount_total")) or 0)
+            valid=(
+                intent is not None and bool(obj.get("livemode"))==expected_livemode
+                and obj.get("currency")==intent["currency"]
+                and charged==int(intent["amount_cents"])
+                and cents==int(intent["amount_cents"])
+                and uid==int(intent["user_id"])
+                and str(obj.get("client_reference_id"))==str(intent["user_id"])
+                and intent["status"]!="paid"
+            )
+            if not valid: raise HTTPException(400,"Stripe checkout does not match a pending top-up")
             db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,cents*10_000,"stripe_topup",obj["id"],now_iso()))
-            if PAYMENTS_ENABLED:
-                db.execute("UPDATE stripe_checkout_intents SET status='paid',payment_intent=? WHERE session_id=?",(obj.get("payment_intent"),obj["id"]))
+            db.execute("UPDATE stripe_checkout_intents SET status='paid',payment_intent=? WHERE session_id=?",(obj.get("payment_intent"),obj["id"]))
             if obj.get("payment_intent"):
                 pi=obj["payment_intent"]; db.execute("INSERT INTO stripe_payments(payment_intent,user_id,credited_microusd,refunded_microusd,created_at) VALUES(?,?,?,?,?) ON CONFLICT(payment_intent) DO NOTHING",(pi,uid,cents*10_000,0,now_iso()))
                 credited=cents*10_000
@@ -656,11 +788,14 @@ async def stripe_webhook(request:Request,stripe_signature:str|None=Header(None))
         db.execute("INSERT INTO stripe_events(id,created_at) VALUES(?,?)",(event["id"],now_iso()))
     return {"received":True}
 
+ROUTE_KEYS=("model","fallback","route","provider_keys")
+
 def validate_body(body:dict,multimodal:bool):
     if not isinstance(body,dict): raise HTTPException(400,"Request body must be an object")
     if "state" not in body: raise HTTPException(400,"state is required")
     questions=body.get("questions")
     if not isinstance(questions,dict) or not questions: raise HTTPException(400,"questions must be a non-empty object")
+    if len(questions)>32: raise HTTPException(400,"At most 32 questions per request")
     for name,q in questions.items():
         if not isinstance(name,str) or not name or not isinstance(q,dict): raise HTTPException(400,"Each question must be a named object")
         typ=q.get("type")
@@ -672,26 +807,37 @@ def validate_body(body:dict,multimodal:bool):
     fallback=body.get("fallback",[])
     if not isinstance(fallback,list) or any(not isinstance(x,str) for x in fallback): raise HTTPException(400,"fallback must be a list of model IDs")
     if body.get("model") is not None and not isinstance(body.get("model"),str): raise HTTPException(400,"model must be a model ID")
-    choices=([body["model"]] if body.get("model") else [])+fallback
-    if not choices: raise HTTPException(400,{"error":"model_required","options":list(MODELS)+list(META_MODELS)})
+    route=body.get("route") or {}
+    if not isinstance(route,dict): raise HTTPException(400,"route must be an object")
+    if route.get("prefer",routing.PREFERENCES[0]) not in routing.PREFERENCES: raise HTTPException(400,{"error":"invalid_route_prefer","options":list(routing.PREFERENCES)})
+    if route.get("task","general") not in routing.TASKS: raise HTTPException(400,{"error":"invalid_route_task","options":list(routing.TASKS)})
+    for limit in ("max_price_per_1k","max_latency_ms"):
+        if limit in route and (not isinstance(route[limit],(int,float)) or route[limit]<0): raise HTTPException(400,f"route.{limit} must be a non-negative number")
+    provider_keys=body.get("provider_keys") or {}
+    if not isinstance(provider_keys,dict) or any(not isinstance(k,str) or not isinstance(v,str) or len(v)>512 for k,v in provider_keys.items()): raise HTTPException(400,"provider_keys must map vendor names to key strings")
+    choices=([body["model"]] if body.get("model") else ["auto"])+fallback
     if len(choices)!=len(set(choices)): raise HTTPException(400,"Duplicate models in route")
+    listed={v["id"] for v in listed_models()}
+    blocked=[m for m in choices if m in listed]
+    if blocked: raise HTTPException(400,{"error":"model_not_routable","models":blocked,"detail":"Listed for comparison only; its provider's terms do not allow routing through us. Call that provider directly."})
     unknown=[m for m in choices if m not in MODELS and m not in META_MODELS]
-    if unknown: raise HTTPException(400,{"error":"unknown_model","models":unknown})
-    has_score=any(q.get("type")=="score" for q in questions.values())
-    expanded=[]
-    for model in choices:
-        routed=meta_candidates(model) if model in META_MODELS else [model]
-        if model in META_MODELS and has_score:
-            routed=[candidate for candidate in routed if candidate!="classifier-fast"]
-        if model in META_MODELS and not routed:
-            raise HTTPException(503,{"error":"meta_model_offline","model":model})
-        expanded.extend(routed)
-    choices=list(dict.fromkeys(expanded))
-    if "classifier-fast" in choices and has_score:
-        raise HTTPException(400,"classifier-fast does not support score questions")
+    if unknown: raise HTTPException(400,{"error":"unknown_model","models":unknown,"options":list(META_MODELS)+list(MODELS)})
     images=body.get("images") or []
     if multimodal and not images: raise HTTPException(400,"images are required")
     if not multimodal and images: raise HTTPException(400,"Use /v1/multimodal for image requests")
+    qtypes={q["type"] for q in questions.values()}
+    expanded=[]
+    for model in choices:
+        if model in META_MODELS:
+            routed=route_candidates(model,image=bool(images),question_types=qtypes,provider_keys=provider_keys,route=route)
+            expanded.extend(routed)
+        else:
+            info=MODELS[model]
+            if not qtypes<=set(info["question_types"]): raise HTTPException(400,{"error":"unsupported_question_type","model":model,"supported":info["question_types"]})
+            if info["routing"]=="byok" and CATALOGUE[model]["byok_vendor"] not in provider_keys: raise HTTPException(400,{"error":"provider_key_required","model":model,"vendor":CATALOGUE[model]["byok_vendor"]})
+            expanded.append(model)
+    choices=list(dict.fromkeys(expanded))
+    if not choices: raise HTTPException(503,{"error":"no_eligible_model","detail":"No healthy model supports this modality, these question types and route limits right now."})
     if images:
         if len(images)>MAX_IMAGES: raise HTTPException(413,f"At most {MAX_IMAGES} images")
         for value in images:
@@ -827,33 +973,60 @@ async def hosting_reaper_loop() -> None:
         except Exception as exc: print(f"hosting reaper failed: {type(exc).__name__}",flush=True)
         await asyncio.sleep(HOSTING_REAPER_SECONDS)
 
+def normalise_answers(model:str,questions:dict,out:Any)->dict:
+    """Check a provider reply against the request so a malformed answer counts as a failure."""
+    answers=(out or {}).get("answers") if isinstance(out,dict) else None
+    if not isinstance(answers,dict): raise ValueError("provider returned no answers object")
+    for name,q in questions.items():
+        a=answers.get(name)
+        if not isinstance(a,dict): raise ValueError(f"provider omitted answer {name}")
+        a.setdefault("type",q["type"])
+        if q["type"]=="choice" and a.get("choice") not in q["criteria"]: raise ValueError(f"provider returned an invalid choice for {name}")
+        if q["type"]=="noul":
+            value=a.get("noul")
+            if not isinstance(value,(int,float)) or not 0<=value<=1: raise ValueError(f"provider returned an invalid noul for {name}")
+        if q["type"]=="score":
+            value=a.get("score")
+            if not isinstance(value,(int,float)) or not 0<=value<len(q["criteria"]): raise ValueError(f"provider returned an invalid score for {name}")
+    return {"answers":{name:answers[name] for name in questions},"usage":out.get("usage",{})}
+
 async def call_model(model:str,body:dict,request:Request):
-    payload={k:v for k,v in body.items() if k not in ("model","fallback")}
+    payload={k:v for k,v in body.items() if k not in ROUTE_KEYS}
+    questions=body.get("questions") or {}
     if model=="stripe-test-paid":
         if STRIPE_MODE != "test" or not PAYMENTS_ENABLED:
             raise ValueError("test billing route is disabled")
         answers={}
-        for name,q in (body.get("questions") or {}).items():
+        for name,q in questions.items():
             if q.get("type")=="noul": answers[name]={"type":"noul","noul":0.75}
             elif q.get("type")=="choice":
                 option=next(iter(q["criteria"]))
                 answers[name]={"type":"choice","choice":option,"confidence":1.0}
             else: answers[name]={"type":"score","score":0}
         return {"model":model,"answers":answers,"usage":{"estimated_cost_usd":0.0001,"test_mode":True}}
-    if model=="classifier-fast":
+    entry=CATALOGUE[model]
+    if entry["adapter"]=="classifier.dev":
         answers={}
         async with httpx.AsyncClient(timeout=15) as client:
-            for name,q in (body.get("questions") or {}).items():
+            for name,q in questions.items():
                 labels=["yes","no"] if q.get("type")=="noul" else list((q.get("criteria") or {}).keys())
                 if len(labels)<2: raise ValueError("question requires at least two criteria")
                 prompt=str(body.get("state"))+("\n\n"+q["instructions"] if q.get("instructions") else "")
                 r=await client.post("https://classifier.dev/v1/classify",json={"inputs":[prompt],"labels":labels,"tier":"fast"}); r.raise_for_status(); item=r.json()["results"][0]; scores=item.get("scores",{})
                 answers[name]={"type":q["type"],"noul":float(scores.get("yes",0))} if q["type"]=="noul" else {"type":q["type"],"choice":item["label"],"confidence":item.get("confidence"),"probabilities":scores}
-        return {"model":model,"answers":answers,"usage":{"estimated_cost_usd":0}}
-    endpoint=os.getenv({"semif-qwen3.5-4b":"SEMIF_ENDPOINT","djev":"DJEV_ENDPOINT","decider-2b-vision":"DECIDER_ENDPOINT","laya-421m":"LAYA_ENDPOINT"}[model],"").rstrip("/")
-    if not endpoint: raise ValueError("scale-to-zero endpoint is offline")
-    token=os.getenv({"semif-qwen3.5-4b":"SEMIF_API_KEY","djev":"DJEV_API_KEY","decider-2b-vision":"DECIDER_API_KEY","laya-421m":"LAYA_API_KEY"}[model],"")
-    return await post_json(endpoint+"/v1/request",payload,{"Authorization":"Bearer "+token} if token else {})
+        return normalise_answers(model,questions,{"answers":answers,"usage":{"estimated_cost_usd":0}})
+    endpoint=entry_endpoint(entry)
+    if not endpoint: raise ValueError("endpoint is not configured")
+    headers={}
+    if entry.get("token_env") and os.getenv(entry["token_env"]): headers["Authorization"]="Bearer "+os.environ[entry["token_env"]]
+    if entry["routing"]=="byok":
+        key=(body.get("provider_keys") or {}).get(entry["byok_vendor"])
+        if not key: raise ValueError("provider key missing")
+        headers[entry.get("byok_header","Authorization")]=(entry.get("byok_prefix","Bearer "))+key
+    if entry["adapter"]=="systemone":
+        out=await post_json(endpoint+entry.get("path","/v1/systemone"),payload,headers,timeout=entry.get("timeout_s",30))
+        return normalise_answers(model,questions,out)
+    raise ValueError(f"unknown adapter {entry['adapter']}")
 
 def reserve_credit(user_id:int, microusd:int, ref:str) -> None:
     if not microusd:return
@@ -890,28 +1063,34 @@ def reconcile_stale_reservations(max_age_seconds:int=600) -> int:
             db.execute("DELETE FROM spend_reservations WHERE ref=?",(row["ref"],)); recovered+=1
     return recovered
 
-async def decide(request:Request,multimodal=False):
+async def decide(request:Request,multimodal=False,body:dict|None=None):
     if int(request.headers.get("content-length","0") or 0)>MAX_BODY: raise HTTPException(413,"Request too large")
-    user=api_user(request.headers.get("authorization")); enforce_rate_limit(user["key_id"]); body=await request.json(); choices=validate_body(body,multimodal); errors=[]
-    for model in choices:
+    user=api_user(request.headers.get("authorization")); enforce_rate_limit(user["key_id"])
+    if body is None:
+        try: body=await request.json()
+        except Exception: raise HTTPException(400,"Request body must be JSON")
+    choices=validate_body(body,multimodal); errors=[]
+    for model in choices[:MAX_ATTEMPTS]:
         info=MODELS[model]; microusd=int(info["price_per_1k_cents"]*10)  # cents/1000 -> micro-USD/decision
         reservation=secrets.token_hex(16); reserve_credit(user["id"],microusd,reservation)
         started=time.perf_counter()
         try:
             out=await call_model(model,body,request); ms=round((time.perf_counter()-started)*1000,1)
-            if isinstance(out,dict): out["model"]=model
-            if model in PROVIDER_HEALTH: PROVIDER_HEALTH[model]=True
+            out["model"]=model
+            HEALTH.ok(model,ms)
             with dbconn() as db:
                 db.execute("INSERT INTO usage_events(user_id,api_key_id,model,microusd,provider,latency_ms,created_at) VALUES(?,?,?,?,?,?,?)",(user["id"],user["key_id"],model,microusd,info["provider"],ms,now_iso()))
                 db.execute("DELETE FROM spend_reservations WHERE ref=?",(reservation,))
-            return JSONResponse(out,headers={"X-Jev-Provider":info["provider"],"X-Jev-Model":model,"X-Jev-Latency-Ms":str(ms),"X-Jev-Cost-Usd":f"{microusd/1_000_000:.6f}","X-Jev-No-Markup":"true" if info["billing"].startswith("third-party") else "not-applicable","Cache-Control":"no-store"})
+            out["routing"]={"requested":body.get("model") or "auto","answered_by":model,"attempts":errors,"price_usd_per_1k":info["price_per_1k_cents"]/100,"billing":info["routing"]}
+            return JSONResponse(out,headers={"X-Jev-Provider":info["provider"],"X-Jev-Model":model,"X-Jev-Latency-Ms":str(ms),"X-Jev-Cost-Usd":f"{microusd/1_000_000:.6f}","Cache-Control":"no-store"})
         except HTTPException: raise
         except asyncio.CancelledError:
             refund_reservation(user["id"],microusd,reservation); raise
         except Exception as e:
-            if model in PROVIDER_HEALTH: PROVIDER_HEALTH[model]=False
+            HEALTH.fail(model,f"{type(e).__name__}")
             refund_reservation(user["id"],microusd,reservation)
-            errors.append({"model":model,"error":str(e)[:160]})
+            detail=f"HTTP {e.response.status_code}" if isinstance(e,httpx.HTTPStatusError) else type(e).__name__ if not isinstance(e,ValueError) else str(e)[:160]
+            errors.append({"model":model,"error":detail})
     raise HTTPException(502,{"error":"all_providers_failed","attempts":errors})
 
 @app.post("/v1/systemone")
@@ -920,18 +1099,39 @@ async def systemone(request:Request): return await decide(request,False)
 @app.post("/v1/multimodal")
 async def multimodal(request:Request): return await decide(request,True)
 
+def chat_to_native(body:dict)->dict:
+    messages=body.get("messages") or []
+    if not isinstance(messages,list) or not messages: raise HTTPException(400,"messages required")
+    if body.get("questions") is not None:
+        # Extension: plain chat messages become the state; typed questions ride alongside.
+        parts=[]
+        for m in messages:
+            content=m.get("content") if isinstance(m,dict) else None
+            if isinstance(content,list): content=" ".join(str(p.get("text","")) for p in content if isinstance(p,dict) and p.get("type")=="text")
+            if content: parts.append(f'{m.get("role","user")}: {content}')
+        native={"state":"\n".join(parts),"questions":body["questions"]}
+        if body.get("images"): native["images"]=body["images"]
+    else:
+        try: native=json.loads(messages[-1]["content"])
+        except Exception: raise HTTPException(400,"Send typed questions in the top-level 'questions' field, or make the final message a JSON System One request")
+        if not isinstance(native,dict): raise HTTPException(400,"Final message must be a JSON object")
+    native["model"]=body.get("model") or "auto"
+    for key in ("fallback","route","provider_keys"):
+        if body.get(key) is not None: native[key]=body[key]
+    return native
+
 @app.post("/v1/chat/completions")
 async def chat(request:Request):
-    body=await request.json(); messages=body.get("messages") or []
-    if not messages: raise HTTPException(400,"messages required")
-    try: native=json.loads(messages[-1]["content"])
-    except Exception: raise HTTPException(400,"Final message content must be a JSON System One request")
-    native["model"]=body.get("model"); native["fallback"]=body.get("fallback",[])
-    class Wrapped:
-        headers=request.headers
-        async def json(self): return native
-    response=await decide(Wrapped(),bool(native.get("images"))); data=json.loads(response.body)
-    return JSONResponse({"id":"jev-"+secrets.token_hex(8),"object":"chat.completion","created":int(time.time()),"model":response.headers.get("X-Jev-Model"),"choices":[{"index":0,"message":{"role":"assistant","content":json.dumps(data)},"finish_reason":"stop"}]},headers=dict(response.headers))
+    try: body=await request.json()
+    except Exception: raise HTTPException(400,"Request body must be JSON")
+    if not isinstance(body,dict): raise HTTPException(400,"Request body must be an object")
+    native=chat_to_native(body)
+    response=await decide(request,bool(native.get("images")),native); data=json.loads(response.body)
+    return JSONResponse({"id":"dec-"+secrets.token_hex(8),"object":"chat.completion","created":int(time.time()),"model":response.headers.get("X-Jev-Model"),"choices":[{"index":0,"message":{"role":"assistant","content":json.dumps({"answers":data["answers"]})},"finish_reason":"stop"}],"decision":data,"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}},headers={k:v for k,v in response.headers.items() if k.lower().startswith("x-jev-")})
+
+@app.get("/v1/models")
+def openai_models():
+    return {"object":"list","data":[{"id":k,"object":"model","created":1790000000,"owned_by":v["provider"],"status":v["status"],"billing":v["billing"]} for k,v in public_models().items()]}
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,6 +1,7 @@
 import base64, hashlib, hmac, json, sqlite3, time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+import importlib.util
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,7 +10,19 @@ import app
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(app,"DB_PATH",str(tmp_path/"test.db"))
+    app.HEALTH.state.clear()
     with TestClient(app.app) as c: yield c
+
+def send_event(client,secret,event):
+    obj=event["data"]["object"]
+    if event["type"]=="checkout.session.completed":
+        meta=obj.setdefault("metadata",{}); meta.setdefault("app","jev-router")
+        uid=int(meta["user_id"]); cents=int(meta["credits_cents"])
+        obj.setdefault("currency","usd"); obj.setdefault("amount_total",cents); obj.setdefault("client_reference_id",str(uid)); obj.setdefault("livemode",False)
+        with app.dbconn() as db:
+            db.execute("INSERT INTO stripe_checkout_intents(session_id,user_id,amount_cents,currency,receipt_email,status,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(session_id) DO NOTHING",(obj["id"],uid,cents,"usd","test@example.com","created",app.now_iso()))
+    raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
+    return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
 
 def make_user_key():
     raw="jvr_test_key"
@@ -20,33 +33,33 @@ def make_user_key():
     return uid,raw
 
 def test_public_pages_and_model_neutrality(client):
-    for path in ("/","/health","/models","/models-page","/docs","/status","/terms","/privacy","/refunds","/impressum"):
-        assert client.get(path).status_code==200
+    for path in ("/","/health","/models","/models-page","/docs","/status","/terms","/privacy","/refunds","/impressum","/pricing","/v1/models"):
+        assert client.get(path).status_code==200, path
     data=client.get("/models").json()
-    assert "jev-class uses descending text JevBench" in data["routing_policy"]
-    assert next(x for x in data["data"] if x["id"]=="jev-class")["routing_order"]==["classifier-fast"]
-    assert not any(x["id"] in ("jev-typesafe","jev-vercel") for x in data["data"])
+    assert "auto (default) ranks healthy models" in data["routing_policy"]
+    assert next(x for x in data["data"] if x["id"]=="jev-class")["routing_order"]==["classifier-fast","semif-qwen3.5-4b","djev"]
+    assert [x["id"] for x in data["listed_only"]]==["listed-demo"]
+    assert not any(x["id"]=="listed-demo" for x in data["data"])
     text=client.get("/models-page").text
-    assert "TypeSafe" not in text and "Vercel" not in text
-    assert "Open decision models" in text
+    assert "Listed for comparison, not routed" in text and "fixture listed" in text
+    assert "not affiliated with, endorsed by, or sponsored by TypeSafe AI" in client.get("/").text
+    imp=client.get("/impressum").text
+    assert "HRB 8453" in imp and "Reichenbergerstr. 2" in imp
 
-def test_home_leads_with_live_shared_api_when_hosting_is_unavailable(client, monkeypatch):
+def test_home_leads_with_router_and_hides_unavailable_hosting(client, monkeypatch):
     monkeypatch.setattr(app,"HOSTING_CONTROL_URL","")
     monkeypatch.setattr(app,"HOSTING_CONTROL_TOKEN","")
     response=client.get("/")
     assert response.status_code==200
-    assert "Use the live API" in response.text
-    assert "Dedicated hosting is currently unavailable" in response.text
-    assert 'href="/login">Start a model' not in response.text
+    assert "Get an API key" in response.text
+    assert "Dedicated GPUs" not in client.get("/models-page").text
 
-def test_models_page_marks_dedicated_hosting_unavailable(client, monkeypatch):
-    monkeypatch.setattr(app,"HOSTING_CONTROL_URL","")
-    monkeypatch.setattr(app,"HOSTING_CONTROL_TOKEN","")
-    response=client.get("/models-page")
-    assert response.status_code==200
-    assert "Availability" in response.text
-    assert response.text.count('<span class="badge offline">unavailable</span>')==len(app.ON_DEMAND_MODELS)
-    assert "Shared routes below remain usable" in response.text
+def test_canonical_redirects_for_alias_domains(client):
+    r=client.get("/pricing?x=1",headers={"host":"decision-models.com"},follow_redirects=False)
+    assert r.status_code==301 and r.headers["location"]=="https://jev-router.com/pricing?x=1"
+    r=client.post("/v1/systemone",headers={"host":"www.system-one.io"},json={},follow_redirects=False)
+    assert r.status_code==308
+    assert client.get("/",headers={"host":"jev-router.com"},follow_redirects=False).status_code==200
 
 def test_mobile_navigation_wraps_instead_of_scrolling(client):
     response=client.get("/")
@@ -61,12 +74,18 @@ def test_unconfigured_hosting_does_not_start_reaper(client):
 def test_browser_favicon_request_does_not_error(client):
     assert client.get("/favicon.ico").status_code==204
 
-def test_auth_required_and_explicit_model(client):
+def test_auth_required_unknown_and_listed_models(client):
     assert client.post("/v1/systemone",json={}).status_code==401
-    _,key=make_user_key()
+    _,key=make_user_key(); h={"Authorization":"Bearer "+key}
     q={"q":{"type":"choice","instructions":"Choose","criteria":{"a":"A","b":"B"}}}
-    r=client.post("/v1/systemone",headers={"Authorization":"Bearer "+key},json={"state":"x","questions":q})
-    assert r.status_code==400 and r.json()["detail"]["error"]=="model_required"
+    r=client.post("/v1/systemone",headers=h,json={"model":"nope","state":"x","questions":q})
+    assert r.status_code==400 and r.json()["detail"]["error"]=="unknown_model"
+    r=client.post("/v1/systemone",headers=h,json={"model":"listed-demo","state":"x","questions":q})
+    assert r.status_code==400 and r.json()["detail"]["error"]=="model_not_routable"
+    r=client.post("/v1/systemone",headers=h,json={"model":"byok-demo","state":"x","questions":q})
+    assert r.status_code==400 and r.json()["detail"]["error"]=="provider_key_required"
+    r=client.post("/v1/systemone",headers=h,json={"model":"classifier-fast","state":"x","questions":{"s":{"type":"score","criteria":["a","b"]}}})
+    assert r.status_code==400 and r.json()["detail"]["error"]=="unsupported_question_type"
 
 def test_multimodal_validation(client):
     _,key=make_user_key(); headers={"Authorization":"Bearer "+key}
@@ -96,22 +115,17 @@ def test_key_revocation(client):
 def test_stripe_signature_and_idempotent_credit(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
     event={"id":"evt_1","type":"checkout.session.completed","data":{"object":{"id":"cs_1","payment_intent":"pi_1","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}}
-    raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
-    headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"}
-    assert client.post("/webhooks/stripe",content=raw,headers=headers).status_code==200
-    assert client.post("/webhooks/stripe",content=raw,headers=headers).json()["duplicate"] is True
+    assert send_event(client,secret,event).status_code==200
+    assert send_event(client,secret,event).json()["duplicate"] is True
     assert app.balance(uid)==10_000_000
-
-    refund={"id":"evt_2","type":"charge.refunded","data":{"object":{"payment_intent":"pi_1","amount_refunded":250}}}
-    raw=json.dumps(refund,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
-    assert client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"}).status_code==200
+    bad=client.post("/webhooks/stripe",content=b"{}",headers={"Stripe-Signature":"t=1,v1=00"})
+    assert bad.status_code==400
+    assert send_event(client,secret,{"id":"evt_2","type":"charge.refunded","data":{"object":{"payment_intent":"pi_1","amount_refunded":250}}}).status_code==200
     assert app.balance(uid)==7_500_000
 
 def test_out_of_order_stripe_refund_is_applied(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
-    def send(event):
-        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
-        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send=lambda event: send_event(client,secret,event)
     assert send({"id":"evt_early","type":"charge.refunded","data":{"object":{"payment_intent":"pi_late","amount_refunded":250}}}).status_code==200
     assert app.balance(uid)==0
     assert send({"id":"evt_checkout","type":"checkout.session.completed","data":{"object":{"id":"cs_late","payment_intent":"pi_late","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}}).status_code==200
@@ -119,9 +133,7 @@ def test_out_of_order_stripe_refund_is_applied(client,monkeypatch):
 
 def test_won_dispute_restores_credit(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
-    def send(event):
-        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
-        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send=lambda event: send_event(client,secret,event)
     send({"id":"evt_top","type":"checkout.session.completed","data":{"object":{"id":"cs_top","payment_intent":"pi_d","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
     send({"id":"evt_open","type":"charge.dispute.created","data":{"object":{"id":"dp_1","payment_intent":"pi_d","amount":400}}})
     assert app.balance(uid)==6_000_000
@@ -130,9 +142,7 @@ def test_won_dispute_restores_credit(client,monkeypatch):
 
 def test_full_refund_and_won_dispute_cannot_restore_refunded_credit(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
-    def send(event):
-        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
-        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send=lambda event: send_event(client,secret,event)
     send({"id":"evt_overlap_top","type":"checkout.session.completed","data":{"object":{"id":"cs_overlap","payment_intent":"pi_overlap","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
     send({"id":"evt_overlap_open","type":"charge.dispute.created","data":{"object":{"id":"dp_overlap","payment_intent":"pi_overlap","amount":400}}})
     send({"id":"evt_overlap_refund","type":"charge.refunded","data":{"object":{"payment_intent":"pi_overlap","amount_refunded":1000}}})
@@ -142,9 +152,7 @@ def test_full_refund_and_won_dispute_cannot_restore_refunded_credit(client,monke
 
 def test_out_of_order_won_dispute_restores_credit(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
-    def send(event):
-        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
-        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send=lambda event: send_event(client,secret,event)
     send({"id":"evt_early_dp","type":"charge.dispute.created","data":{"object":{"id":"dp_early","payment_intent":"pi_early","amount":400}}})
     send({"id":"evt_late_top","type":"checkout.session.completed","data":{"object":{"id":"cs_late_dp","payment_intent":"pi_early","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
     assert app.balance(uid)==6_000_000
@@ -153,9 +161,7 @@ def test_out_of_order_won_dispute_restores_credit(client,monkeypatch):
 
 def test_dispute_won_before_checkout_never_debits(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
-    def send(event):
-        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
-        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send=lambda event: send_event(client,secret,event)
     send({"id":"evt_dp_first","type":"charge.dispute.created","data":{"object":{"id":"dp_pre_won","payment_intent":"pi_pre_won","amount":400}}})
     send({"id":"evt_won_first","type":"charge.dispute.closed","data":{"object":{"id":"dp_pre_won","payment_intent":"pi_pre_won","status":"won"}}})
     send({"id":"evt_checkout_last","type":"checkout.session.completed","data":{"object":{"id":"cs_pre_won","payment_intent":"pi_pre_won","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
@@ -163,9 +169,7 @@ def test_dispute_won_before_checkout_never_debits(client,monkeypatch):
 
 def test_refund_survives_won_dispute_when_both_precede_checkout(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
-    def send(event):
-        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
-        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send=lambda event: send_event(client,secret,event)
     send({"id":"evt_pre_ref","type":"charge.refunded","data":{"object":{"payment_intent":"pi_mix","amount_refunded":250}}})
     send({"id":"evt_pre_dp","type":"charge.dispute.created","data":{"object":{"id":"dp_mix","payment_intent":"pi_mix","amount":400}}})
     send({"id":"evt_mix_top","type":"checkout.session.completed","data":{"object":{"id":"cs_mix","payment_intent":"pi_mix","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
@@ -175,9 +179,7 @@ def test_refund_survives_won_dispute_when_both_precede_checkout(client,monkeypat
 
 def test_won_closure_before_delayed_dispute_create_never_debits(client,monkeypatch):
     uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
-    def send(event):
-        raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
-        return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+    send=lambda event: send_event(client,secret,event)
     send({"id":"evt_known_top","type":"checkout.session.completed","data":{"object":{"id":"cs_known","payment_intent":"pi_known","payment_status":"paid","metadata":{"user_id":str(uid),"credits_cents":"1000"}}}})
     send({"id":"evt_known_won","type":"charge.dispute.closed","data":{"object":{"id":"dp_delayed","payment_intent":"pi_known","status":"won"}}})
     send({"id":"evt_known_created","type":"charge.dispute.created","data":{"object":{"id":"dp_delayed","payment_intent":"pi_known","amount":400}}})
@@ -205,8 +207,6 @@ def test_failed_paid_provider_refunds_reservation(client):
 def test_meta_routes_by_published_score_and_returns_concrete_model(client,monkeypatch):
     uid,key=make_user_key()
     with app.dbconn() as db: db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,1_000_000,"test","seed",app.now_iso()))
-    monkeypatch.setitem(app.PROVIDER_HEALTH,"djev",True)
-    monkeypatch.setitem(app.PROVIDER_HEALTH,"semif-qwen3.5-4b",True)
     calls=[]
     async def fake(model,body,request):
         calls.append(model)
@@ -224,8 +224,6 @@ def test_meta_routes_by_published_score_and_returns_concrete_model(client,monkey
 def test_image_meta_uses_separate_image_ranking(client,monkeypatch):
     uid,key=make_user_key()
     with app.dbconn() as db: db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,1_000_000,"test","seed",app.now_iso()))
-    monkeypatch.setitem(app.PROVIDER_HEALTH,"djev",True)
-    monkeypatch.setitem(app.PROVIDER_HEALTH,"decider-2b-vision",True)
     image="data:image/png;base64,"+base64.b64encode(b"tiny").decode()
     async def fake(model,body,request): return {"answers":{}}
     monkeypatch.setattr(app,"call_model",fake)
@@ -402,3 +400,119 @@ def test_old_hosting_minute_schema_is_migrated(tmp_path,monkeypatch):
         columns={row[1] for row in db.execute("PRAGMA table_info(hosting_minute_events)")}
         assert "usage_event_id" in columns
         assert db.execute("SELECT COUNT(*) FROM hosting_minute_events WHERE instance_id='old'").fetchone()[0]==1
+
+
+def _signed(client,secret,event):
+    raw=json.dumps(event,separators=(",",":")).encode(); ts=str(int(time.time())); sig=hmac.new(secret.encode(),ts.encode()+b"."+raw,hashlib.sha256).hexdigest()
+    return client.post("/webhooks/stripe",content=raw,headers={"Stripe-Signature":f"t={ts},v1={sig}","Content-Type":"application/json"})
+
+def _checkout(uid,session="cs_x",**over):
+    obj={"id":session,"payment_intent":"pi_"+session,"payment_status":"paid","currency":"usd","amount_total":1000,"client_reference_id":str(uid),"livemode":False,"metadata":{"app":"jev-router","user_id":str(uid),"credits_cents":"1000"}}
+    obj.update(over)
+    return {"id":"evt_"+session,"type":"checkout.session.completed","data":{"object":obj}}
+
+def _intent(uid,session="cs_x",cents=1000):
+    with app.dbconn() as db:
+        db.execute("INSERT INTO stripe_checkout_intents(session_id,user_id,amount_cents,currency,receipt_email,status,created_at) VALUES(?,?,?,?,?,?,?)",(session,uid,cents,"usd","t@example.com","created",app.now_iso()))
+
+@pytest.mark.parametrize("override",[{"livemode":True},{"currency":"eur"},{"amount_total":999},{"client_reference_id":"999"}])
+def test_webhook_rejects_mismatched_checkout(client,monkeypatch,override):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    _intent(uid)
+    assert _signed(client,secret,_checkout(uid,**override)).status_code==400
+    assert app.balance(uid)==0
+
+def test_webhook_rejects_checkout_without_recorded_intent_or_wrong_user(client,monkeypatch):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    assert _signed(client,secret,_checkout(uid,"cs_unknown")).status_code==400
+    _intent(uid,"cs_other_user")
+    ev=_checkout(uid,"cs_other_user"); ev["data"]["object"]["metadata"]["user_id"]="12345"
+    assert _signed(client,secret,ev).status_code==400
+    assert app.balance(uid)==0
+
+def test_webhook_ignores_other_products_on_shared_account(client,monkeypatch):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    ev=_checkout(uid,"cs_bh"); ev["data"]["object"]["metadata"]={"kind":"priority-evaluation"}
+    r=_signed(client,secret,ev)
+    assert r.status_code==200 and r.json()["ignored"]
+    assert app.balance(uid)==0
+
+def test_checkout_paid_session_cannot_credit_twice_under_new_event_id(client,monkeypatch):
+    uid,_=make_user_key(); secret="whsec_test"; monkeypatch.setattr(app,"STRIPE_WEBHOOK_SECRET",secret)
+    _intent(uid,"cs_twice")
+    assert _signed(client,secret,_checkout(uid,"cs_twice")).status_code==200
+    again=_checkout(uid,"cs_twice"); again["id"]="evt_other"
+    assert _signed(client,secret,again).status_code==400
+    assert app.balance(uid)==10_000_000
+
+def test_live_mode_requires_explicit_flag_live_key_and_webhook_secret(monkeypatch):
+    import importlib, sys
+    def load(**env):
+        for k in ("STRIPE_MODE","STRIPE_LIVE_SECRET_KEY","STRIPE_LIVE_WEBHOOK_SECRET","PAYMENTS_ENABLED_LIVE"): monkeypatch.delenv(k,raising=False)
+        for k,v in env.items(): monkeypatch.setenv(k,v)
+        spec=importlib.util.spec_from_file_location("app_live_probe",str(Path(app.__file__)))
+        mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); return mod
+    m=load(STRIPE_MODE="live",STRIPE_LIVE_SECRET_KEY="sk_live_x",STRIPE_LIVE_WEBHOOK_SECRET="whsec_x")
+    assert m.STRIPE_MODE=="live" and not m.PAYMENTS_ENABLED
+    m=load(STRIPE_MODE="live",STRIPE_LIVE_SECRET_KEY="sk_test_x",STRIPE_LIVE_WEBHOOK_SECRET="whsec_x",PAYMENTS_ENABLED_LIVE="true")
+    assert not m.PAYMENTS_ENABLED
+    m=load(STRIPE_MODE="live",STRIPE_LIVE_SECRET_KEY="sk_live_x",STRIPE_LIVE_WEBHOOK_SECRET="whsec_x",PAYMENTS_ENABLED_LIVE="true")
+    assert m.PAYMENTS_ENABLED and "stripe-test-paid" not in m.MODELS
+    m=load(STRIPE_LIVE_SECRET_KEY="sk_live_x",PAYMENTS_ENABLED_LIVE="true")
+    assert m.STRIPE_MODE=="test" and m.STRIPE_SECRET_KEY!="sk_live_x"
+
+def test_auto_route_preferences_and_byok(client,monkeypatch):
+    uid,key=make_user_key(); h={"Authorization":"Bearer "+key}
+    with app.dbconn() as db: db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,1_000_000,"test","seed",app.now_iso()))
+    calls=[]
+    async def fake(model,body,request):
+        calls.append((model,body.get("provider_keys")))
+        return {"answers":{"q":{"type":"noul","noul":0.5}}}
+    monkeypatch.setattr(app,"call_model",fake)
+    q={"q":{"type":"noul"}}
+    r=client.post("/v1/systemone",headers=h,json={"state":"x","questions":q})
+    assert r.json()["routing"]["answered_by"]=="classifier-fast" and r.json()["routing"]["requested"]=="auto"
+    r=client.post("/v1/systemone",headers=h,json={"state":"x","questions":q,"route":{"task":"judgement"}})
+    assert r.headers["X-Jev-Model"]=="semif-qwen3.5-4b"
+    r=client.post("/v1/systemone",headers=h,json={"state":"x","questions":q,"route":{"prefer":"price","max_price_per_1k":0.055}})
+    assert r.headers["X-Jev-Model"]=="classifier-fast"
+    r=client.post("/v1/systemone",headers=h,json={"state":"x","questions":q,"provider_keys":{"demo":"sk-demo"}})
+    assert r.headers["X-Jev-Model"]=="byok-demo" and r.headers["X-Jev-Cost-Usd"]=="0.000000"
+    assert client.post("/v1/systemone",headers=h,json={"state":"x","questions":q,"route":{"prefer":"cheapest"}}).status_code==400
+
+def test_circuit_breaker_skips_failing_model(client,monkeypatch):
+    uid,key=make_user_key(); h={"Authorization":"Bearer "+key}
+    with app.dbconn() as db: db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,1_000_000,"test","seed",app.now_iso()))
+    calls=[]
+    async def fake(model,body,request):
+        calls.append(model)
+        if model=="classifier-fast": raise RuntimeError("down")
+        return {"answers":{"q":{"type":"noul","noul":0.5}}}
+    monkeypatch.setattr(app,"call_model",fake)
+    q={"state":"x","questions":{"q":{"type":"noul"}}}
+    for _ in range(3): assert client.post("/v1/systemone",headers=h,json=q).status_code==200
+    assert calls.count("classifier-fast")==2
+    assert app.HEALTH.status("classifier-fast")=="offline"
+
+def test_malformed_provider_answer_fails_over_and_is_not_charged(client,monkeypatch):
+    uid,key=make_user_key(); h={"Authorization":"Bearer "+key}
+    with app.dbconn() as db: db.execute("INSERT INTO credit_events(user_id,microusd,kind,ref,created_at) VALUES(?,?,?,?,?)",(uid,1_000_000,"test","seed",app.now_iso()))
+    async def fake_post(url,body,headers,timeout=120):
+        return {"answers":{"q":{"choice":"not-an-option"}}}
+    monkeypatch.setattr(app,"post_json",fake_post)
+    r=client.post("/v1/systemone",headers=h,json={"model":"semif-qwen3.5-4b","fallback":["djev"],"state":"x","questions":{"q":{"type":"choice","criteria":{"a":None,"b":None}}}})
+    assert r.status_code==502 and len(r.json()["detail"]["attempts"])==2
+    assert app.balance(uid)==1_000_000
+
+def test_openai_compatible_chat_with_questions(client,monkeypatch):
+    uid,key=make_user_key(); h={"Authorization":"Bearer "+key}
+    seen={}
+    async def fake(model,body,request):
+        seen.update(body); return {"answers":{"topic":{"type":"choice","choice":"billing","confidence":0.9}}}
+    monkeypatch.setattr(app,"call_model",fake)
+    r=client.post("/v1/chat/completions",headers=h,json={"model":"auto","messages":[{"role":"user","content":"Why was I charged twice?"}],"questions":{"topic":{"type":"choice","criteria":{"billing":None,"outage":None}}}})
+    assert r.status_code==200
+    body=r.json()
+    assert json.loads(body["choices"][0]["message"]["content"])["answers"]["topic"]["choice"]=="billing"
+    assert body["model"]=="classifier-fast" and "Why was I charged twice?" in seen["state"]
+    assert client.get("/v1/models").json()["data"]

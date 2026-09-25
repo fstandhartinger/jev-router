@@ -1,0 +1,3 @@
+[
+ {"id":"classifier-fast","display":"classifier.dev fast tier","vendor":"classifier.dev","homepage":"https://classifier.dev","routing":"free","adapter":"classifier.dev","health_url":"https://classifier.dev/health","modalities":["text"],"question_types":["choice","noul"],"jevbench_key":"classifier-dev-fast","licence":"MIT code; hosted service","terms_basis":"PENDING","terms_url":"https://classifier.dev"}
+]
