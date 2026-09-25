@@ -106,7 +106,10 @@ def latency_ms(entry: dict[str, Any], health: Health) -> float:
     if live is not None:
         return live
     published = (entry.get("jevbench") or {}).get("p50_s")
-    return 1000 * published if published else 2000.0
+    if published:
+        return 1000 * published
+    probed = (entry.get("probe") or {}).get("p50_ms")
+    return float(probed) if probed else 2000.0
 
 
 def eligible(entry: dict[str, Any], *, image: bool, question_types: set[str], provider_keys: dict[str, str], health: Health) -> bool:

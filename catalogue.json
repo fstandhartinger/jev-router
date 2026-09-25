@@ -2,23 +2,233 @@
  "generated_from": "JevBench v1.4.2 published results; ImageJevBench v0.1 published results",
  "entries": [
   {
-   "id": "classifier-fast",
-   "display": "classifier.dev fast tier",
-   "vendor": "classifier.dev",
-   "homepage": "https://classifier.dev",
-   "routing": "free",
-   "adapter": "classifier.dev",
-   "health_url": "https://classifier.dev/health",
+   "id": "typesafe-jev",
+   "display": "Jev 1.13 (TypeSafe AI)",
+   "vendor": "TypeSafe AI, Inc.",
+   "homepage": "https://typesafe.ai",
+   "licence": "proprietary API (TypeSafe Master Customer Agreement)",
+   "terms_url": "https://typesafe.ai/legal/mca",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
    "modalities": [
     "text"
    ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Original Jev. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API. Pass-through stays disabled (decision 21 Sep 2026) until TypeSafe grants written permission.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "jev-via-openrouter",
+   "display": "Jev via OpenRouter (typesafe/jev-1.13)",
+   "vendor": "OpenRouter (provider: TypeSafe)",
+   "homepage": "https://openrouter.ai/typesafe/jev-1.13",
+   "licence": "proprietary API",
+   "terms_url": "https://openrouter.ai/terms",
    "question_types": [
     "choice",
-    "noul"
+    "noul",
+    "score"
    ],
-   "licence": "MIT code; hosted service",
-   "terms_basis": "PENDING",
-   "terms_url": "https://classifier.dev",
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "OpenRouter Terms §7 ban accessing the service 'for purposes of reselling API access to Models or otherwise developing a competing service'; TypeSafe MCA binds end users too. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "jev-via-vercel-ai-gateway",
+   "display": "Jev via Vercel AI Gateway (typesafe-ai/jev)",
+   "vendor": "Vercel (providers: TypeSafe, DigitalOcean)",
+   "homepage": "https://vercel.com/ai-gateway/models/jev",
+   "licence": "proprietary API",
+   "terms_url": "https://vercel.com/legal/ai-product-terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Vercel AI Product Terms: licence 'solely for Customer's personal or internal business use'; Vercel ToS forbid reselling. BYOK may silently fall back to Vercel credentials. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "jev-via-digitalocean",
+   "display": "Jev on DigitalOcean serverless inference",
+   "vendor": "DigitalOcean",
+   "homepage": "https://ideas.digitalocean.com/changelog/now-available-jev-from-typesafe-ai",
+   "licence": "proprietary API",
+   "terms_url": "https://typesafe.ai/legal/mca",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "TypeSafe-licensed distribution channel; the MCA restrictions flow down to every customer. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "jev-via-cloudflare",
+   "display": "Jev on Cloudflare Workers AI",
+   "vendor": "Cloudflare",
+   "homepage": "https://developers.cloudflare.com/ai/models/typesafe/jev/",
+   "licence": "proprietary API",
+   "terms_url": "https://typesafe.ai/legal/mca",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "TypeSafe-licensed distribution channel. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "jev-via-infron-onerouter",
+   "display": "Jev 1.13 via Infron / OneRouter",
+   "vendor": "Infron AI (OneRouter)",
+   "homepage": "https://infron.ai/models/typesafe/jev-1.13",
+   "licence": "proprietary API",
+   "terms_url": "https://typesafe.ai/legal/mca",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Another router reselling TypeSafe Jev (POST https://llm.onerouter.pro/v1/decisions, $0.042/M input). Routing through it is still Jev resale. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "classifier-dev",
+   "display": "classifier.dev (fast tier)",
+   "vendor": "classifier.dev (mrmps / @michael_chomsky)",
+   "homepage": "https://classifier.dev",
+   "licence": "MIT (code, github.com/mrmps/classifier-dev); hosted service runs TypeSafe Jev",
+   "terms_url": "https://classifier.dev/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Its fast tier IS TypeSafe Jev (API answers model 'jev-1.13.0'; its privacy page says texts are forwarded to the model provider). Routing paid traffic through it resells Jev indirectly, so TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API. classifier.dev's own terms do not forbid third-party use, and the service is free within per-IP limits; but free-tier limits are per IP, and pooling our customers behind one IP would 'get around the per-IP limits'. WARNING: the parent's current live site routes 'classifier-fast' — reconsider that route.",
    "jevbench": {
     "version": "v1.4.2",
     "key": "classifier-dev-fast",
@@ -34,6 +244,1694 @@
     },
     "p50_s": 0.38636084645986557,
     "cost_usd_per_1k": 0.003333333333333333
+   }
+  },
+  {
+   "id": "decision-machine-1",
+   "display": "decision-machine-1 (milliseconds.ai)",
+   "vendor": "milliseconds.ai (Baptiste Laget)",
+   "homepage": "https://www.milliseconds.ai",
+   "licence": "proprietary API, closed weights",
+   "terms_url": "https://www.milliseconds.ai/legal/terms/",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "byok",
+   "byok_vendor": "milliseconds",
+   "adapter": "systemone",
+   "base_url": "https://api.milliseconds.ai",
+   "path": "/v1/systemone",
+   "upstream_model": "decision-machine-1",
+   "timeout_s": 20,
+   "terms_basis": "Bring your own key: Terms §4.1 forbid offering 'the raw Service to third parties as a stand-alone API without a written agreement'; §2.2 lets a customer integrate it into their own applications. So: customer brings their own milliseconds.ai key, we charge nothing for the call. paid-ok only after a written agreement with CloudRaker. Healthy: 5/5 correct, p50 ~175 ms. Your own milliseconds.ai (Baptiste Laget) key is forwarded unchanged for your own use; we charge nothing.",
+   "probe": {
+    "checked_utc": "2026-09-25T23:13:16Z",
+    "ok": true,
+    "p50_ms": 175.1
+   },
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "decision-machine-1",
+    "score": 54.8,
+    "composite": 39.94,
+    "rank": 23,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.7604166666666666,
+     "judge": 0.8972602739726028,
+     "hard": 0.4681818181818182
+    },
+    "p50_s": 0.17223640158772469,
+    "cost_usd_per_1k": 0.035026591760299625
+   }
+  },
+  {
+   "id": "autoloops-gemma-4-31b",
+   "display": "Gemma 4 31B IT decision API (Autoloops, Kushal Patil)",
+   "vendor": "Autoloops",
+   "homepage": "https://autoloops.ai",
+   "licence": "hosted service; base weights google/gemma-4-31b-it Apache-2.0",
+   "terms_url": "https://autoloops.ai/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "imagejevbench": {
+    "version": "v0.1 (preview, clean split 2026-09-25)",
+    "score": 47.14,
+    "rank": 5
+   },
+   "routing": "byok",
+   "byok_vendor": "autoloops",
+   "adapter": "systemone",
+   "base_url": "https://api.autoloops.ai",
+   "path": "/v1/systemone",
+   "upstream_model": "gemma-4-31b-it",
+   "timeout_s": 20,
+   "terms_basis": "Bring your own key: Terms (speech-to-text only, 24 Aug) say 'Don't resell access as if it were your own service'; the decision endpoint is not covered. Customer brings their own Autoloops key; ask Autoloops/Kushal Patil for written OK before paid routing. Healthy: 5/5 correct, p50 ~740 ms; also image-capable (ImageJevBench #5). Your own Autoloops key is forwarded unchanged for your own use; we charge nothing.",
+   "probe": {
+    "checked_utc": "2026-09-25T23:13:23Z",
+    "ok": true,
+    "p50_ms": 731.6
+   },
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "kushal-gemma4-31b-it-autoloops",
+    "score": 69.51,
+    "composite": 29.96,
+    "rank": 42,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.958904109589041,
+     "hard": 0.8272727272727273
+    },
+    "p50_s": 0.6035970412194729,
+    "cost_usd_per_1k": 0.136347191011236
+   }
+  },
+  {
+   "id": "zoowork-instinct",
+   "display": "Instinct (ZooWork, Qwen3.8-27B)",
+   "vendor": "ZooWork (rayrain-srp)",
+   "homepage": "https://instinct.zoowork.ai",
+   "licence": "proprietary service over Apache-2.0 Qwen3.8-27B base weights",
+   "terms_url": "https://zoowork.ai/about/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "byok",
+   "byok_vendor": "zoowork",
+   "adapter": "systemone",
+   "base_url": "https://api.zoowork.ai",
+   "path": "/v1/systemone",
+   "upstream_model": "instinct",
+   "timeout_s": 20,
+   "terms_basis": "Bring your own key: ZooWork terms: 'Resell or redistribute the Service without our express written permission' is prohibited. Customer uses their own (currently free-preview) key. No key on Sandy: only the 401 auth wall was verified. Your own ZooWork (rayrain-srp) key is forwarded unchanged for your own use; we charge nothing.",
+   "probe": {
+    "checked_utc": "2026-09-25T23:13:24Z",
+    "ok": false,
+    "p50_ms": null
+   },
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "instinct",
+    "score": 64.91,
+    "composite": 11.45,
+    "rank": 74,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 0.9861111111111112,
+     "standard": 0.9583333333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.759090909090909
+    },
+    "p50_s": 0.5172921419143677,
+    "cost_usd_per_1k": 0.3253253932584269
+   }
+  },
+  {
+   "id": "simplex-spx-cd-flash",
+   "display": "spx-cd-flash / spx-cd-pro (Simplex AI, preview)",
+   "vendor": "Simplex AI (zqwei-tech)",
+   "homepage": "https://simplexai.net",
+   "licence": "proprietary API (public beta)",
+   "terms_url": "https://simplexai.net/en/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "byok",
+   "byok_vendor": "simplex",
+   "adapter": "systemone",
+   "base_url": "https://api.simplexai.net",
+   "path": "/v1/systemone",
+   "upstream_model": "spx-cd-flash",
+   "timeout_s": 20,
+   "terms_basis": "Bring your own key: Terms have no explicit API-resale grant (only output rights). Customer brings their own key; ask Simplex for written permission before paid routing. No key on Sandy: 401 verified. Your own Simplex AI (zqwei-tech) key is forwarded unchanged for your own use; we charge nothing.",
+   "probe": {
+    "checked_utc": "2026-09-25T23:13:25Z",
+    "ok": false,
+    "p50_ms": null
+   }
+  },
+  {
+   "id": "djev-hosted",
+   "display": "djev hosted API (Maisa, free preview)",
+   "vendor": "Maisa (David Villalón)",
+   "homepage": "https://djev.dev",
+   "licence": "Apache-2.0 code (github.com/Davipar/djev-dev); Google DiffusionGemma Apache-2.0 weights",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "No terms page exists; the prior decision (PROVIDER-RIGHTS.md) is not to proxy Maisa's hosted API. Self-host the Apache-2.0 djev runtime instead (entry djev-selfhost).",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "djev",
+    "score": 51.18,
+    "composite": 52.23,
+    "rank": 8,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9791666666666666,
+     "judge": 0.9315068493150684,
+     "hard": 0.6954545454545454
+    },
+    "p50_s": 0.2370578795671463,
+    "cost_usd_per_1k": 0.025951254681647943
+   }
+  },
+  {
+   "id": "bluusun-decision-1",
+   "display": "Bluusun Decision API (bluusun/decision-1)",
+   "vendor": "Bluusun (Lewis Linden)",
+   "homepage": "https://www.bluusun.com",
+   "licence": "proprietary API",
+   "terms_url": "https://www.bluusun.com/terms.html",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Generic terms: a service 'may not be shared with individuals or other legal entities'. Customer uses their own prepaid Bluusun key ($0.005/decision); ask Lewis Linden for written permission before paid routing. 401 verified without key."
+  },
+  {
+   "id": "featherless-qwen3.8-27b-classifier",
+   "display": "Featherless classifier API (SimpleJev on api.featherless.ai)",
+   "vendor": "Featherless AI",
+   "homepage": "https://featherless.ai",
+   "licence": "hosted service; open SimpleJev code; model weights per model (Qwen/Gemma Apache-2.0; RWKV variants undisclosed)",
+   "terms_url": "https://featherless.ai/legal/terms-of-service",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "byok",
+   "byok_vendor": "featherless",
+   "adapter": "systemone",
+   "base_url": "https://api.featherless.ai",
+   "path": "/v1/classifier",
+   "upstream_model": "featherless-ai/Qwen3.8-27B-classifier",
+   "timeout_s": 20,
+   "terms_basis": "Bring your own key: Featherless ToS: Individual plans are for the purchaser's own use; 'Scale plans ... may be used in arbitrary applications, including inference resale'. Today: byok (customer's own Featherless key). Upgrade path: paid-ok once jev-router itself holds a Featherless Scale plan (the only vendor whose terms explicitly allow inference resale). 401 verified without key. Your own Featherless AI key is forwarded unchanged for your own use; we charge nothing.",
+   "probe": {
+    "checked_utc": "2026-09-25T23:14:32Z",
+    "ok": false,
+    "p50_ms": null
+   }
+  },
+  {
+   "id": "featherless-simplejev-demo",
+   "display": "SimpleJev demo API (Featherless Classifier Demo, 8 models)",
+   "vendor": "Featherless AI",
+   "homepage": "https://simple-jev.featherless.ai",
+   "licence": "demo service; SimpleJev code open; Qwen/Gemma weights Apache-2.0",
+   "terms_url": "https://featherless.ai/legal/terms-of-service",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Free, keyless demo endpoint (2 RPS, 2k-token cap), explicitly a demo, not a production service. Listed only; for paid traffic either self-host SimpleJev on the Apache-2.0 weights (entry simplejev-qwen3.8-27b-selfhost) or BYOK the production Featherless API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "simplejev-qwen3.8-27b",
+    "score": 63.04,
+    "composite": 34.57,
+    "rank": 32,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.96875,
+     "judge": 0.9315068493150684,
+     "hard": 0.75
+    },
+    "p50_s": 2.0276340171694756,
+    "cost_usd_per_1k": 0.10399651685393257
+   }
+  },
+  {
+   "id": "levanto-sage1",
+   "display": "Sage1 (Levanto)",
+   "vendor": "Levanto AI",
+   "homepage": "https://levanto.ai",
+   "licence": "proprietary paid API",
+   "terms_url": "https://levanto.ai/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Levanto licence is 'solely for your internal business or personal purposes' and forbids providing it 'as a substantially similar competing inference API ... without our prior written consent'. Customer's own key only. 401 verified."
+  },
+  {
+   "id": "together-tev1-4b",
+   "display": "tev1-4B-experimental (Together AI serverless)",
+   "vendor": "Together AI",
+   "homepage": "https://huggingface.co/togethercomputer/Tev1-4B-experimental",
+   "licence": "weights public, licence 'being finalized' per model card; Qwen3.5-4B base Apache-2.0",
+   "terms_url": "https://www.together.ai/terms-of-service",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Together ToS forbid offering the Services 'on a standalone basis' and reselling. Customer's own Together key only. Weight licence still 'being finalized', so no self-hosting yet."
+  },
+  {
+   "id": "trustedrouter-gev-1",
+   "display": "gev-1.0 (TrustedRouter)",
+   "vendor": "TrustedRouter (@jperla)",
+   "homepage": "https://trustedrouter.com",
+   "licence": "proprietary paid API",
+   "terms_url": "https://trustedrouter.com/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Softest terms found (only bans resale 'in violation of an applicable provider agreement'), but it is a paid competing router; customer's own key only, ask for written OK before paid routing."
+  },
+  {
+   "id": "system-one-open-modal-demo",
+   "display": "system-one-open (Gemma 4 E2B LoRA) — author demo on Modal",
+   "vendor": "mithalouni",
+   "homepage": "https://github.com/mithalouni/system-one-open",
+   "licence": "MIT (repository LICENSE); Gemma 4 E2B base Apache-2.0",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Individual author's free demo endpoint on Modal (cold starts ~38 s); no production commitment or permission for third-party use. Code is MIT, so self-hosting is the paid path.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "system-one-open",
+    "score": 49.53,
+    "composite": 45.11,
+    "rank": 14,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9375,
+     "judge": 0.8767123287671232,
+     "hard": 0.4909090909090909
+    },
+    "p50_s": 1.3034616634249687,
+    "cost_usd_per_1k": 0.014880936329588014
+   }
+  },
+  {
+   "id": "openjev-sglang-modal-demo",
+   "display": "openjev-sglang (Qwen3.6-35B-A3B on SGLang) — author demo on Modal",
+   "vendor": "ekzhang",
+   "homepage": "https://github.com/ekzhang/openjev-sglang",
+   "licence": "no licence file in the repository; Qwen3.6 weights Apache-2.0",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Individual author's demo endpoint; repository has no licence file (all rights reserved), so neither routing nor self-hosting is cleared.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "openjev-sglang",
+    "score": 59.33,
+    "composite": 27.65,
+    "rank": 45,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9583333333333334,
+     "judge": 0.952054794520548,
+     "hard": 0.7136363636363636
+    },
+    "p50_s": 1.3553436994552612,
+    "cost_usd_per_1k": 0.13127546816479402
+   }
+  },
+  {
+   "id": "jevact-demo",
+   "display": "JevAct (einptein, jev1-2b-v2) — author-hosted endpoint",
+   "vendor": "einptein",
+   "homepage": "https://github.com/fstandhartinger/jevbench/issues/66",
+   "licence": "not stated",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "One author machine in China (115.190.124.200:18084), plain HTTP, no licence stated, no terms. Listed only.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jevact",
+    "score": 42.17,
+    "composite": 16.93,
+    "rank": 65,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 0.9861111111111112,
+     "standard": 0.6875,
+     "judge": 0.589041095890411,
+     "hard": 0.37272727272727274
+    },
+    "p50_s": 0.7985022515058517,
+    "cost_usd_per_1k": 0.015491685393258427
+   }
+  },
+  {
+   "id": "open-alternative-jev-hf-space",
+   "display": "open-alternative-jev (IkerMoel) — HF Space",
+   "vendor": "IkerMoel",
+   "homepage": "https://huggingface.co/spaces/IkerMoel/open-alternative-jev",
+   "licence": "Apache-2.0 (code and weights)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Free Gradio demo Space with anonymous quota; listed only. Weights Apache-2.0, so self-hosting is possible (JevBench #36, weak).",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "open-alternative-jev",
+    "score": 48.64,
+    "composite": 33.24,
+    "rank": 36,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.84375,
+     "judge": 0.7465753424657534,
+     "hard": 0.5681818181818182
+    },
+    "p50_s": 0.5637207791209221,
+    "cost_usd_per_1k": 0.022171404494382024
+   }
+  },
+  {
+   "id": "wity-1",
+   "display": "Wity-1 (Rakshith)",
+   "vendor": "Wity (@DopeRakshith)",
+   "homepage": "https://wity-frontend.vercel.app",
+   "licence": "proprietary (pre-launch)",
+   "terms_url": "https://wity-frontend.vercel.app/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Pre-launch hosted API; the author asked that results stay private until their launch. Our key is an evaluation key. Listed only; do not publish scores."
+  },
+  {
+   "id": "eigenjev",
+   "display": "EigenJev (Eigenweltlabs, DiffusionGemma)",
+   "vendor": "Eigenweltlabs",
+   "homepage": "https://platform.eigenweltlabs.com/eigenjev",
+   "licence": "unknown (DiffusionGemma base Apache-2.0)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Announced 19 Sep as a free drop-in API; the URL now shows a sign-in page for an EU legal-AI platform. No public endpoint to route to."
+  },
+  {
+   "id": "openjev-juspay-hosted",
+   "display": "openjev hosted (Juspay / pramodp)",
+   "vendor": "Juspay (pramodp-dotcom)",
+   "homepage": "https://github.com/fstandhartinger/jevbench/issues/24",
+   "licence": "unknown",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Hosted, key needed; the authors asked for our public key on 22 Sep, no key yet. Unreachable."
+  },
+  {
+   "id": "gambler-26b",
+   "display": "Experiment Gambler 26B",
+   "vendor": "@zerocorebeta",
+   "homepage": "https://github.com/fstandhartinger/jevbench/issues/26",
+   "licence": "closed, not stated",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Keyless author relay on a Tailscale funnel; did not connect on 25 Sep (502 earlier). Unreachable, no licence."
+  },
+  {
+   "id": "openjev-co",
+   "display": "OpenJev (openjev.co, agentspanel)",
+   "vendor": "@agentspanel",
+   "homepage": "https://openjev.co",
+   "licence": "unknown",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Landing page says 'coming soon'; no API."
+  },
+  {
+   "id": "decider-1-latent-node",
+   "display": "Decider 1 (Latent Node)",
+   "vendor": "@latent_node",
+   "homepage": "https://x.com/latent_node/status/2102948757956595967",
+   "licence": "unknown",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Claims a public /v1/systemone API but no URL was published. Unreachable."
+  },
+  {
+   "id": "standardone-8b-selfhost",
+   "display": "Standard One 8B (Standard Thinking)",
+   "vendor": "Standard Thinking",
+   "homepage": "https://huggingface.co/StandardThinking/StandardOne-8B",
+   "licence": "Apache-2.0 (jev-adapter server, LoRA and merged weights; LICENSE + NOTICE); base Ministral-3-8B Apache-2.0; training data synthetic, own (cleanest provenance)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 (jev-adapter server, LoRA and merged weights; LICENSE + NOTICE); base Ministral-3-8B Apache-2.0; training data synthetic, own (cleanest provenance)): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "standardone-8b",
+    "score": 56.02,
+    "composite": 29.07,
+    "rank": 43,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9479166666666666,
+     "judge": 0.9657534246575342,
+     "hard": 0.5681818181818182
+    },
+    "p50_s": 0.19767316300421953,
+    "cost_usd_per_1k": 0.10444269662921347
+   }
+  },
+  {
+   "id": "jevk5-selfhost",
+   "display": "JevK5 (allebee, Qwen3.5-4B)",
+   "vendor": "allebee (@alibiserikbay)",
+   "homepage": "https://huggingface.co/alibiserikbay/JevK5",
+   "licence": "Apache-2.0 code/adapter; Qwen3.5-4B base Apache-2.0; LICENSE + NOTICE list dataset licences, NC sets (RACE/ANLI) dropped; v0.3 teacher GPT-6 Luna (author's OpenAI-terms matter)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 code/adapter; Qwen3.5-4B base Apache-2.0; LICENSE + NOTICE list dataset licences, NC sets (RACE/ANLI) dropped; v0.3 teacher GPT-6 Luna (author's OpenAI-terms matter)): licence allows commercial hosting; not hosted by us yet. v0.3 (4B and 9B) measured, pending v1.4.3 release.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jevk5-v02",
+    "score": 61.71,
+    "composite": 62.04,
+    "rank": 3,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9583333333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.7
+    },
+    "p50_s": null,
+    "cost_usd_per_1k": 0.022356404494382018
+   }
+  },
+  {
+   "id": "cygnet-selfhost",
+   "display": "Cygnet (blockbrain, frozen Gemma-4-12B-it)",
+   "vendor": "blockbrain",
+   "homepage": "https://github.com/blockbrain-ai/cygnet-recipe",
+   "licence": "shim MIT; weights = unmodified google/gemma-4-12B-it, Apache-2.0 (Gemma 4); NOTICE asks to honour the Gemma Prohibited Use Policy (not binding for Gemma 4)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (shim MIT; weights = unmodified google/gemma-4-12B-it, Apache-2.0 (Gemma 4); NOTICE asks to honour the Gemma Prohibited Use Policy (not binding for Gemma 4)): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "cygnet",
+    "score": 62.22,
+    "composite": 61.76,
+    "rank": 4,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.96875,
+     "judge": 0.952054794520548,
+     "hard": 0.7545454545454545
+    },
+    "p50_s": 0.22043880224227905,
+    "cost_usd_per_1k": 0.03736151685393259
+   }
+  },
+  {
+   "id": "djev-selfhost",
+   "display": "djev (DiffusionGemma 26B-A4B, self-hosted)",
+   "vendor": "Maisa / Davipar (code)",
+   "homepage": "https://github.com/Davipar/djev-dev",
+   "licence": "Apache-2.0 code with NOTICE (vLLM parts); google/diffusiongemma-26B-A4B-it Apache-2.0; NVIDIA NVFP4 quant Apache-2.0",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text",
+    "image"
+   ],
+   "imagejevbench": {
+    "version": "v0.1 (preview, clean split 2026-09-25)",
+    "score": 46.64,
+    "rank": 6
+   },
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 code with NOTICE (vLLM parts); google/diffusiongemma-26B-A4B-it Apache-2.0; NVIDIA NVFP4 quant Apache-2.0): licence allows commercial hosting; not hosted by us yet. ImageJevBench: djev-dev BF16 #6; djev-spark NVFP4 #4.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "djev",
+    "score": 51.18,
+    "composite": 52.23,
+    "rank": 8,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9791666666666666,
+     "judge": 0.9315068493150684,
+     "hard": 0.6954545454545454
+    },
+    "p50_s": 0.2370578795671463,
+    "cost_usd_per_1k": 0.025951254681647943
+   }
+  },
+  {
+   "id": "decider-4b-v2-selfhost",
+   "display": "decider-4b v2 (Mapika)",
+   "vendor": "Mapika",
+   "homepage": "https://github.com/Mapika/decider",
+   "licence": "Apache-2.0 (package and weights); base Qwen3.5-4B-Base Apache-2.0. CAVEAT: data builders pull RACE, XNLI, MS MARCO, Yelp (non-commercial dataset terms)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 (package and weights); base Qwen3.5-4B-Base Apache-2.0. CAVEAT: data builders pull RACE, XNLI, MS MARCO, Yelp (non-commercial dataset terms)): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "decider-4b-v2",
+    "score": 62.17,
+    "composite": 64.13,
+    "rank": 1,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.96875,
+     "judge": 0.8767123287671232,
+     "hard": 0.6727272727272727
+    },
+    "p50_s": 0.18499184921383857,
+    "cost_usd_per_1k": 0.02006786516853933
+   }
+  },
+  {
+   "id": "decider-2b-vision-selfhost",
+   "display": "decider-2b-vision (Mapika)",
+   "vendor": "Mapika",
+   "homepage": "https://huggingface.co/Mapika/decider-2b-vision",
+   "licence": "Apache-2.0; base Qwen3.5-2B VL Apache-2.0. CAVEAT: trained on The Cauldron subsets incl. Hateful Memes (research licence) and ScienceQA (CC BY-NC-SA)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text",
+    "image"
+   ],
+   "imagejevbench": {
+    "version": "v0.1 (preview, clean split 2026-09-25)",
+    "score": 66.77,
+    "rank": 2
+   },
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0; base Qwen3.5-2B VL Apache-2.0. CAVEAT: trained on The Cauldron subsets incl. Hateful Memes (research licence) and ScienceQA (CC BY-NC-SA)): licence allows commercial hosting; not hosted by us yet. "
+  },
+  {
+   "id": "reflex-4b-selfhost",
+   "display": "reflex 4B (kshetrajna12)",
+   "vendor": "kshetrajna12",
+   "homepage": "https://github.com/kshetrajna12/reflex",
+   "licence": "MIT (code, adapter); Qwen3.5-4B base Apache-2.0. CAVEAT: recipes load MS MARCO (non-commercial research terms)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text",
+    "image"
+   ],
+   "imagejevbench": {
+    "version": "v0.1 (preview, clean split 2026-09-25)",
+    "score": 65.38,
+    "rank": 3
+   },
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (MIT (code, adapter); Qwen3.5-4B base Apache-2.0. CAVEAT: recipes load MS MARCO (non-commercial research terms)): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "reflex-4b",
+    "score": 58.93,
+    "composite": 53.99,
+    "rank": 7,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9479166666666666,
+     "judge": 0.9726027397260274,
+     "hard": 0.6318181818181818
+    },
+    "p50_s": 3.7493558838963508,
+    "cost_usd_per_1k": 0.022087303370786515
+   }
+  },
+  {
+   "id": "winnow-12b-selfhost",
+   "display": "Winnow-12B (EldanRing)",
+   "vendor": "EldanRing",
+   "homepage": "https://huggingface.co/EldanRing/Winnow-12B",
+   "licence": "Apache-2.0 (LICENSE + NOTICE); gemma-4-12B-it base Apache-2.0; training data private, provenance unverifiable",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 (LICENSE + NOTICE); gemma-4-12B-it base Apache-2.0; training data private, provenance unverifiable): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "winnow-12b",
+    "score": 56.56,
+    "composite": 55.58,
+    "rank": 6,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.96875,
+     "judge": 0.910958904109589,
+     "hard": 0.7090909090909091
+    },
+    "p50_s": 0.6000711113214493,
+    "cost_usd_per_1k": 0.037087359550561805
+   }
+  },
+  {
+   "id": "jev-omni-selfhost",
+   "display": "Jev-Omni (akhilaaa3, Gemma-4-12B merged)",
+   "vendor": "akhilaaa3",
+   "homepage": "https://huggingface.co/akhilaaa3/Jev-Omni",
+   "licence": "Apache-2.0 on the model card only (no LICENSE file); gemma-4-12B-it Apache-2.0; 'dataset rights remain separate'",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text",
+    "image"
+   ],
+   "imagejevbench": {
+    "version": "v0.1 (preview, clean split 2026-09-25)",
+    "score": 73.1,
+    "rank": 1
+   },
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 on the model card only (no LICENSE file); gemma-4-12B-it Apache-2.0; 'dataset rights remain separate'): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-omni",
+    "score": 55.42,
+    "composite": 51.34,
+    "rank": 9,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.96875,
+     "judge": 0.9246575342465754,
+     "hard": 0.75
+    },
+    "p50_s": 0.5841626092791558,
+    "cost_usd_per_1k": 0.03682059925093633
+   }
+  },
+  {
+   "id": "bonsai-2-27b-selfhost",
+   "display": "Bonsai 2 27B (prism-ml, ternary) / Bonsai-Llama-Jev",
+   "vendor": "Prism ML (weights), kyr0 (wrapper)",
+   "homepage": "https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf",
+   "licence": "Apache-2.0 (LICENSE + NOTICE.txt); Qwen3.8-27B base Apache-2.0",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text",
+    "image"
+   ],
+   "imagejevbench": {
+    "version": "v0.1 (preview, clean split 2026-09-25)",
+    "score": 19.26,
+    "rank": 7
+   },
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 (LICENSE + NOTICE.txt); Qwen3.8-27B base Apache-2.0): licence allows commercial hosting; not hosted by us yet. "
+  },
+  {
+   "id": "simplejev-qwen3.8-27b-selfhost",
+   "display": "SimpleJev + Qwen3.8-27B (self-hosted)",
+   "vendor": "Featherless AI (code) / Qwen (weights)",
+   "homepage": "https://github.com/featherless-ai/simple-jev",
+   "licence": "Qwen3.8-27B weights Apache-2.0; featherless-ai/simple-jev code Apache-2.0 (GitHub licence field, read 25 Sep 2026)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Qwen3.8-27B weights Apache-2.0; featherless-ai/simple-jev code Apache-2.0 (GitHub licence field, read 25 Sep 2026)): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "simplejev-qwen3.8-27b",
+    "score": 63.04,
+    "composite": 34.57,
+    "rank": 32,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.96875,
+     "judge": 0.9315068493150684,
+     "hard": 0.75
+    },
+    "p50_s": 2.0276340171694756,
+    "cost_usd_per_1k": 0.10399651685393257
+   }
+  },
+  {
+   "id": "spark-s1-4b-v6-selfhost",
+   "display": "spark-s1-4b-v6 (Open Spark Jev, abhishek085)",
+   "vendor": "abhishek085",
+   "homepage": "https://github.com/abhishek085/open-spark-jev",
+   "licence": "Apache-2.0 (code and weights); Qwen3.5-4B base Apache-2.0",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 (code and weights); Qwen3.5-4B base Apache-2.0): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "spark-s1-4b-v6",
+    "score": 46.32,
+    "composite": 44.62,
+    "rank": 15,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9791666666666666,
+     "judge": 0.9178082191780822,
+     "hard": 0.6
+    },
+    "p50_s": 0.7785069435834885,
+    "cost_usd_per_1k": 0.025333314606741573
+   }
+  },
+  {
+   "id": "semif-qwen3.5-4b-selfhost",
+   "display": "SemIf (formerly OpenJev, TheoLeeCJ)",
+   "vendor": "TheoLeeCJ",
+   "homepage": "https://github.com/TheoLeeCJ/openjev",
+   "licence": "MIT code; Qwen3.5-4B weights Apache-2.0",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (MIT code; Qwen3.5-4B weights Apache-2.0): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "semif-qwen3.5-4b",
+    "score": 55.6,
+    "composite": 47.69,
+    "rank": 11,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9791666666666666,
+     "judge": 0.952054794520548,
+     "hard": 0.5954545454545455
+    },
+    "p50_s": 0.5459222957491875,
+    "cost_usd_per_1k": 0.02244460674157303
+   }
+  },
+  {
+   "id": "jqv-qwen3-32b-selfhost",
+   "display": "jqv (Qwen3-32B zero-shot, Octalab)",
+   "vendor": "Octalab-Inc",
+   "homepage": "https://github.com/Octalab-Inc/jqv",
+   "licence": "Apache-2.0 (Qwen3-32B weights and serving code)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 (Qwen3-32B weights and serving code)): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jqv",
+    "score": 59.02,
+    "composite": 44.35,
+    "rank": 17,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9583333333333334,
+     "judge": 0.9246575342465754,
+     "hard": 0.6454545454545455
+    },
+    "p50_s": 1.6447810769081115,
+    "cost_usd_per_1k": 0.05641543071161049
+   }
+  },
+  {
+   "id": "qwen3-reranker-4b-selfhost",
+   "display": "Qwen3-Reranker-4B (as decision model)",
+   "vendor": "Qwen",
+   "homepage": "https://huggingface.co/Qwen/Qwen3-Reranker-4B",
+   "licence": "Apache-2.0",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "qwen3-reranker-4b",
+    "score": 54.92,
+    "composite": 43.49,
+    "rank": 18,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.7916666666666666,
+     "judge": 0.8767123287671232,
+     "hard": 0.5
+    },
+    "p50_s": 0.41049583777785303,
+    "cost_usd_per_1k": 0.04953623422454652
+   }
+  },
+  {
+   "id": "laya-selfhost",
+   "display": "Laya (Convai Innovations, ModernBERT-large 421M, CPU)",
+   "vendor": "Convai Innovations",
+   "homepage": "https://huggingface.co/convaiinnovations/laya",
+   "licence": "Apache-2.0 (model card, tagged commercial-use; no LICENSE file)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 (model card, tagged commercial-use; no LICENSE file)): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "laya",
+    "score": 49.9,
+    "composite": 30.25,
+    "rank": 41,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 0.9444444444444444,
+     "standard": 0.7291666666666666,
+     "judge": 0.6917808219178082,
+     "hard": 0.3409090909090909
+    },
+    "p50_s": 1.7241355717182159,
+    "cost_usd_per_1k": 0.0028831273408239703
+   }
+  },
+  {
+   "id": "jeff-gliformer-selfhost",
+   "display": "jeff (Logan Markewich, GLiFormer 400M, CPU)",
+   "vendor": "Logan Markewich",
+   "homepage": "https://github.com/logan-markewich/jeff",
+   "licence": "MIT (code); GLiFormer weights per their model card (check)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "MIT code, CPU-cheap, but the GLiFormer weights licence is unconfirmed: listed-only until checked.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jeff",
+    "score": 52.32,
+    "composite": 30.58,
+    "rank": 40,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.7604166666666666,
+     "judge": 0.6164383561643836,
+     "hard": 0.37727272727272726
+    },
+    "p50_s": 2.025860035419464,
+    "cost_usd_per_1k": 0.006036722846441948
+   }
+  },
+  {
+   "id": "codiv-openjev-latest",
+   "display": "Codiv (hosted open System One models: openjev-latest, laya-1.0, verdict-1.4, clm-v0.1, jevk5-0.2)",
+   "vendor": "Codiv",
+   "homepage": "https://codiv.ai",
+   "licence": "server Apache-2.0; hosted models' weights Apache/MIT",
+   "terms_url": "https://codiv.ai/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "byok",
+   "byok_vendor": "codiv",
+   "adapter": "systemone",
+   "base_url": "https://api.codiv.ai",
+   "path": "/v1/systemone",
+   "upstream_model": "openjev-latest",
+   "timeout_s": 20,
+   "terms_basis": "Bring your own key: Free public experiment (100M input tokens/account, 60 rpm/key); terms forbid reselling 'access to the hosted Service without our written permission'. Customer's own key only. All its models are open weights we can self-host. Auth wall (403 'Must supply an API key') verified; no signup made. Your own Codiv key is forwarded unchanged for your own use; we charge nothing.",
+   "probe": {
+    "checked_utc": "2026-09-25T23:21:57Z",
+    "ok": false,
+    "p50_ms": null
+   }
+  },
+  {
+   "id": "siliconflow-systemone",
+   "display": "SiliconFlow System One endpoint (diffusiongemma, Kev-4b, SemIf)",
+   "vendor": "SiliconFlow",
+   "homepage": "https://siliconflow.cn",
+   "licence": "hosted service; models open weights (DiffusionGemma Apache-2.0, kev-4b Apache-2.0, SemIf MIT/Apache)",
+   "terms_url": "https://docs.siliconflow.com/en/legals/terms-of-service",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "SiliconFlow ToS forbid reselling or making the Services available to third parties and building a competing service. Customer's own key only. Free alpha until 8 Oct 2026 per third-party reports."
+  },
+  {
+   "id": "kev-4b-via-openrouter",
+   "display": "kev-4b via OpenRouter (provider SiliconFlow)",
+   "vendor": "OpenRouter / SiliconFlow",
+   "homepage": "https://openrouter.ai/jaredpalmer/kev-4b",
+   "licence": "kev-4b weights Apache-2.0 (jaredpalmer); hosted by SiliconFlow",
+   "terms_url": "https://openrouter.ai/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "OpenRouter §7 bans reselling API access and building a competing service. Self-host the Apache-2.0 kev weights instead.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "kev-4b",
+    "score": 40.86,
+    "composite": 36.14,
+    "rank": 28,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9166666666666666,
+     "judge": 0.8561643835616438,
+     "hard": 0.42272727272727273
+    },
+    "p50_s": 1.2504949510097503,
+    "cost_usd_per_1k": 0.018802865168539323
+   }
+  },
+  {
+   "id": "harnessrouter",
+   "display": "HarnessRouter (hosted laya, openthai-systemone, system-one-phase2)",
+   "vendor": "HarnessRouter",
+   "homepage": "https://harnessrouter.ai/system-one-models",
+   "licence": "hosted service; models open weights (Laya Apache-2.0, OpenThai-SystemOne Apache-2.0)",
+   "terms_url": "https://harnessrouter.ai/legal/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Terms forbid providing 'the bare Services to third parties without material added value (... beyond mere resale, relabeling, or thin wrapping)'; a router is arguably thin wrapping. Customer's own key only. It is itself a competing router (also routes Jev)."
+  },
+  {
+   "id": "respan-span-01",
+   "display": "Span-01 (Respan / Keywords AI) — behaviour scoring",
+   "vendor": "Keywords AI Inc. d/b/a Respan",
+   "homepage": "https://www.respan.ai/blog/introducing-span-1",
+   "licence": "proprietary API",
+   "terms_url": "https://www.respan.ai/legal/terms-of-use",
+   "question_types": [
+    "noul"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Terms: 'may not be used in connection with any commercial endeavors except those ... specifically endorsed or approved by us' and not 'for any revenue-generating endeavor'. Also noul-like only (p_present/p_absent/p_not_observable over a conversation span), no choice/score."
+  },
+  {
+   "id": "laya-api-hf-space",
+   "display": "Laya API (Anuragggggggg) — HF Space",
+   "vendor": "Anuragggggggg (community)",
+   "homepage": "https://huggingface.co/spaces/Anuragggggggg/laya-api",
+   "licence": "no licence on the Space; Laya weights Apache-2.0",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Free community HF Space; the advertised /v1/decide route is not exposed (the Space serves only a Gradio app, checked 25 Sep). Self-host Laya instead."
+  },
+  {
+   "id": "arsenelupin-hf-space",
+   "display": "ArseneLupin v1.1 (DNG / VincentTerrasi) — HF Space",
+   "vendor": "DNG (VincentTerrasi)",
+   "homepage": "https://huggingface.co/spaces/DNG/arsenelupin-marketing-playground",
+   "licence": "Apache-2.0 (Space tag)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Free Gradio demo Space of an individual author; listed only."
+  },
+  {
+   "id": "audiojev-hf-space",
+   "display": "AudioJev (mocomoco) — HF Space, audio input",
+   "vendor": "mocomoco-inc",
+   "homepage": "https://huggingface.co/spaces/mocomoco-inc/AudioDecisionModel",
+   "licence": "mixed Apache/MIT (Space)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "audio"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Free Gradio demo Space; audio modality. Listed only."
+  },
+  {
+   "id": "jeff-modal-demo",
+   "display": "jeff GPU server (LlamaIndex research) — Modal dev endpoint",
+   "vendor": "Logan Markewich / LlamaIndex",
+   "homepage": "https://github.com/logan-markewich/jeff",
+   "licence": "MIT (code)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Author dev endpoint; answered 404 'modal-http: invalid function call' on 25 Sep (down). Self-host the MIT code instead.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jeff",
+    "score": 52.32,
+    "composite": 30.58,
+    "rank": 40,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.7604166666666666,
+     "judge": 0.6164383561643836,
+     "hard": 0.37727272727272726
+    },
+    "p50_s": 2.025860035419464,
+    "cost_usd_per_1k": 0.006036722846441948
+   }
+  },
+  {
+   "id": "typesafe-jev-router-openrouter",
+   "display": "TypeSafe 'Jev Router' (typesafe/jev-router on OpenRouter)",
+   "vendor": "TypeSafe AI via OpenRouter",
+   "homepage": "https://openrouter.ai/typesafe/jev-router",
+   "licence": "proprietary",
+   "terms_url": "https://openrouter.ai/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "TypeSafe's own router product (listed 25 Sep 2026 19:12 UTC: 'Jev Router picks the best model and reasoning effort for each request ... It runs on Jev'). TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API. NAME CONFLICT with jev-router.com (see LEGAL.md Annex B §4-5)."
+  },
+  {
+   "id": "jev-via-crazyrouter",
+   "display": "Jev via Crazyrouter",
+   "vendor": "Crazyrouter",
+   "homepage": "https://crazyrouter.com",
+   "licence": "proprietary API (TypeSafe Jev)",
+   "terms_url": "https://typesafe.ai/legal/mca",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Passes TypeSafe Jev through; routing via it is still Jev resale. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "jev-via-beatapi",
+   "display": "Jev via BeatAPI",
+   "vendor": "BeatAPI",
+   "homepage": "https://beatapi.io/jev-api",
+   "licence": "proprietary API (TypeSafe Jev)",
+   "terms_url": "https://beatapi.io/terms-of-service",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Passes TypeSafe Jev through; routing via it is still Jev resale. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "jev-via-other-gateways",
+   "display": "Jev via LLM Gateway, Requesty, Eden AI, OpenCode Zen, AIML API, Bocha",
+   "vendor": "various gateways",
+   "homepage": "https://llmgateway.io",
+   "licence": "proprietary API (TypeSafe Jev)",
+   "terms_url": "https://typesafe.ai/legal/mca",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Passes TypeSafe Jev through; routing via it is still Jev resale. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "jev-ai-pro",
+   "display": "Jev AI (jev-ai.pro, Jev + Laya playground/API)",
+   "vendor": "jev-ai.pro",
+   "homepage": "https://jev-ai.pro",
+   "licence": "proprietary (serves TypeSafe Jev)",
+   "terms_url": "https://jev-ai.pro/terms",
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Passes TypeSafe Jev through; routing via it is still Jev resale. TypeSafe MCA (23 Sep 2026) §2.3(a) forbids offering the Services 'as a standalone service'; §2.3(b) forbids 'a similar or competing product or service'. Router is not affiliated with TypeSafe. Do not call TypeSafe's API.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "jev-1.13.0",
+    "score": 64.7,
+    "composite": 63.29,
+    "rank": 2,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9895833333333334,
+     "judge": 0.9452054794520548,
+     "hard": 0.740909090909091
+    },
+    "p50_s": 0.6524335257709026,
+    "cost_usd_per_1k": 0.03991423595505617
+   }
+  },
+  {
+   "id": "flymy-decision-4b-selfhost",
+   "display": "Decision 4B v1.2 / v1.1 (FlyMy.AI)",
+   "vendor": "FlyMy.AI",
+   "homepage": "https://huggingface.co/flymy-ai",
+   "licence": "Apache-2.0 adapter + code (LICENSE; EVALUATION-PERMISSION.md additionally grants evaluation); Qwen3.5-4B base Apache-2.0; 'own decision data and licence-reviewed public datasets'",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0 adapter + code (LICENSE; EVALUATION-PERMISSION.md additionally grants evaluation); Qwen3.5-4B base Apache-2.0; 'own decision data and licence-reviewed public datasets'): licence allows commercial hosting; not hosted by us yet. "
+  },
+  {
+   "id": "eikos-selfhost",
+   "display": "Eikos 4B / 27B (caiovicentino1)",
+   "vendor": "caiovicentino1",
+   "homepage": "https://huggingface.co/caiovicentino1",
+   "licence": "MIT; bases Qwen3.5-4B / Qwen3.8-27B Apache-2.0; released CC-BY training set (eikos-decisions)",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (MIT; bases Qwen3.5-4B / Qwen3.8-27B Apache-2.0; released CC-BY training set (eikos-decisions)): licence allows commercial hosting; not hosted by us yet. "
+  },
+  {
+   "id": "kev-selfhost",
+   "display": "kev 4B / 8B / 0.6B / 27B (jaredpalmer)",
+   "vendor": "Jared Palmer",
+   "homepage": "https://huggingface.co/jaredpalmer",
+   "licence": "Apache-2.0; Qwen bases Apache-2.0. CAVEAT: kev-27b card lists Yelp (non-commercial terms) among training sets",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "kind": "open-weights",
+   "terms_basis": "Open weights (Apache-2.0; Qwen bases Apache-2.0. CAVEAT: kev-27b card lists Yelp (non-commercial terms) among training sets): licence allows commercial hosting; not hosted by us yet. ",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "kev-4b",
+    "score": 40.86,
+    "composite": 36.14,
+    "rank": 28,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9166666666666666,
+     "judge": 0.8561643835616438,
+     "hard": 0.42272727272727273
+    },
+    "p50_s": 1.2504949510097503,
+    "cost_usd_per_1k": 0.018802865168539323
+   }
+  },
+  {
+   "id": "metask-jev-4b-selfhost",
+   "display": "metask-jev-4b",
+   "vendor": "metask-ai",
+   "homepage": "https://github.com/metask-ai/metask-jev",
+   "licence": "Apache-2.0 HF tag; no LICENSE file on GitHub; unnamed teacher + '11 public datasets'",
+   "terms_url": null,
+   "question_types": [
+    "choice",
+    "noul",
+    "score"
+   ],
+   "modalities": [
+    "text"
+   ],
+   "routing": "listed",
+   "adapter": null,
+   "terms_basis": "Apache-2.0 HF tag only, no LICENSE file, unnamed teacher model: listed-only until the author supplies a LICENSE file and the dataset list.",
+   "jevbench": {
+    "version": "v1.4.2",
+    "key": "metask-jev-4b",
+    "score": 55.79,
+    "composite": 47.78,
+    "rank": 10,
+    "listing": "ranked",
+    "tiers": {
+     "easy": 1.0,
+     "standard": 0.9791666666666666,
+     "judge": 0.8972602739726028,
+     "hard": 0.5909090909090909
+    },
+    "p50_s": 0.2814368711318821,
+    "cost_usd_per_1k": 0.032758801498127314
    }
   }
  ]

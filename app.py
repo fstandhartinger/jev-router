@@ -1024,6 +1024,7 @@ async def call_model(model:str,body:dict,request:Request):
         if not key: raise ValueError("provider key missing")
         headers[entry.get("byok_header","Authorization")]=(entry.get("byok_prefix","Bearer "))+key
     if entry["adapter"]=="systemone":
+        if entry.get("upstream_model"): payload["model"]=entry["upstream_model"]
         out=await post_json(endpoint+entry.get("path","/v1/systemone"),payload,headers,timeout=entry.get("timeout_s",30))
         return normalise_answers(model,questions,out)
     raise ValueError(f"unknown adapter {entry['adapter']}")
