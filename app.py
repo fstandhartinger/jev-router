@@ -514,11 +514,12 @@ def models_page(request: Request):
 def pricing(request: Request):
     paid=sorted(((k,v) for k,v in MODELS.items() if v["routing"]=="paid" and k!="stripe-test-paid"),key=lambda kv:(kv[1]["price_per_1k_cents"],-best_score(kv[1])))
     rows="".join(f'<tr><th scope="row">{esc(k)}<br><span class="muted">{esc(v.get("display",""))}</span></th><td>USD {v["price_per_1k_cents"]/100:.2f}</td><td>USD {v["price_per_1k_cents"]*10:.2f}</td><td>{bench_cell(v)}</td></tr>' for k,v in paid) or '<tr><td colspan=4 class="muted">No paid models are configured right now.</td></tr>'
-    free=", ".join(esc(k) for k,v in MODELS.items() if v["routing"]=="free") or "none"
+    free=", ".join(esc(k) for k,v in MODELS.items() if v["routing"]=="free")
+    free_card=f'<div class="card"><h3>Free routes</h3><p class="muted">{free}. Third-party services we route to at no charge, within their published limits.</p></div>' if free else ""
     byok=", ".join(esc(k) for k,v in MODELS.items() if v["routing"]=="byok") or "none right now"
     body=f'''<h1 style="font-size:52px">Pricing</h1><p class="lead">Pay per decision from prepaid credit. No subscription, no monthly minimum. One decision is one request, however many questions it contains.</p>
 <div class="table-wrap"><table><thead><tr><th>Model we host</th><th>Per 1,000 decisions</th><th>Per 1,000,000 decisions</th><th>Published score</th></tr></thead><tbody>{rows}</tbody></table></div>
-<div class="grid" style="margin-top:24px"><div class="card"><h3>Free routes</h3><p class="muted">{free}. Third-party services we route to at no charge, within their published limits.</p></div><div class="card"><h3>Bring your own key</h3><p class="muted">{byok}. Your key goes straight to that provider; we add nothing and never store it.</p></div><div class="card"><h3>Credit</h3><p class="muted">Top up USD {MIN_TOPUP_CENTS/100:.0f} to USD {MAX_TOPUP_CENTS/100:.0f} per payment by card through Stripe. Prices in USD; {VAT_NOTE} Credit does not expire. Unused credit is refundable within 14 days of purchase.</p></div></div>
+<div class="grid" style="margin-top:24px">{free_card}<div class="card"><h3>Bring your own key</h3><p class="muted">{byok}. Your key goes straight to that provider; we add nothing and never store it.</p></div><div class="card"><h3>Credit</h3><p class="muted">Top up USD {MIN_TOPUP_CENTS/100:.0f} to USD {MAX_TOPUP_CENTS/100:.0f} per payment by card through Stripe. Prices in USD; {VAT_NOTE} Credit does not expire. Unused credit is refundable within 14 days of purchase.</p></div></div>
 <h2>Limits</h2><p>{RATE_LIMIT_PER_MINUTE} requests per minute per API key, a daily spend cap you set yourself (default USD 100), and at most USD {DAILY_TOPUP_CAP_CENTS/100:.0f} of top-ups per account per day. Failed and failed-over attempts are never charged. <code>auto</code> requests cost the price of the model that actually answered, shown in every response.</p>'''
     return page("Pricing", body, current_user(request))
 
