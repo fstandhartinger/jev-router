@@ -971,7 +971,7 @@
   "display": "jeff (Logan Markewich, GLiFormer 400M, CPU)",
   "vendor": "Logan Markewich",
   "homepage": "https://github.com/logan-markewich/jeff",
-  "licence": "MIT (code); GLiFormer weights per their model card (check)",
+  "licence": "MIT (code); GLiFormer weights Apache-2.0",
   "terms_url": null,
   "question_types": [
    "choice",
@@ -984,7 +984,7 @@
   "jevbench_key": "jeff",
   "routing": "listed",
   "adapter": null,
-  "terms_basis": "MIT code, CPU-cheap, but the GLiFormer weights licence is unconfirmed: listed-only until checked."
+  "terms_basis": "Superseded: we now host this model ourselves as jeff-gliformer-400m (MIT code, Apache-2.0 GLiFormer weights)."
  },
  {
   "id": "codiv-openjev-latest",
@@ -1346,5 +1346,83 @@
   "routing": "listed",
   "adapter": null,
   "terms_basis": "Apache-2.0 HF tag only, no LICENSE file, unnamed teacher model: listed-only until the author supplies a LICENSE file and the dataset list."
+ },
+ {
+  "id": "jeff-gliformer-400m",
+  "display": "jeff + GLiFormer large 400M (CPU, hosted by Jev Router)",
+  "vendor": "Jev Router (self-hosted open model)",
+  "homepage": "https://github.com/logan-markewich/jeff",
+  "licence": "jeff code MIT (Logan Markewich); knowledgator/gliformer-large-v1 weights Apache-2.0",
+  "terms_url": "https://huggingface.co/knowledgator/gliformer-large-v1",
+  "path": "/v1/jeff-gliformer-400m/systemone",
+  "price_per_1k_cents": 2,
+  "terms_basis": "Own hosting of open software: jeff @6f43d3e is MIT and GLiFormer large @d0a4e53 is Apache-2.0 (verified 25 Sep 2026), both allow commercial serving. Caveat: GLiFormer's training data is not disclosed by Knowledgator. Same software stack and weights JevBench v1.4.2 measured; the jev model aliases are disabled.",
+  "question_types": [
+   "choice",
+   "noul",
+   "score"
+  ],
+  "modalities": [
+   "text"
+  ],
+  "routing": "paid",
+  "adapter": "systemone",
+  "base_url_env": "CPU_MODELS_URL",
+  "token_env": "CPU_MODELS_TOKEN",
+  "timeout_s": 30,
+  "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)",
+  "jevbench_key": "jeff"
+ },
+ {
+  "id": "verdict-1.4-151m",
+  "display": "Verdict 1.4 151M (heman10x, CPU, hosted by Jev Router)",
+  "vendor": "Jev Router (self-hosted open model)",
+  "homepage": "https://github.com/Heman10x-NGU/Verdict-open-jev",
+  "licence": "engine Apache-2.0; heman10x/rlcd-modernbert-151m weights Apache-2.0; training data Banking77 (CC-BY-4.0, PolyAI) and CLINC150 (CC-BY-3.0, Larson et al. 2019)",
+  "terms_url": "https://huggingface.co/heman10x/rlcd-modernbert-151m",
+  "path": "/v1/verdict-1.4-151m/systemone",
+  "price_per_1k_cents": 1,
+  "terms_basis": "Own hosting of open software: engine @30f1556 and weights @8af2496 are Apache-2.0; base model gliclass-modern-base-v2.0 states commercially usable data; training data is CC-BY (attribution given here). Verified 25 Sep 2026. A narrow banking-domain model.",
+  "question_types": [
+   "choice",
+   "noul",
+   "score"
+  ],
+  "modalities": [
+   "text"
+  ],
+  "routing": "paid",
+  "adapter": "systemone",
+  "base_url_env": "CPU_MODELS_URL",
+  "token_env": "CPU_MODELS_TOKEN",
+  "timeout_s": 30,
+  "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)",
+  "jevbench_key": "openjev-verdict-1.4"
+ },
+ {
+  "id": "gliner2-large",
+  "display": "GLiNER2 large 340M (Fastino, CPU, hosted by Jev Router)",
+  "vendor": "Jev Router (self-hosted open model)",
+  "homepage": "https://huggingface.co/fastino/gliner2-large-v1",
+  "licence": "fastino/gliner2-large-v1 weights and gliner2 package Apache-2.0",
+  "terms_url": "https://huggingface.co/fastino/gliner2-large-v1",
+  "path": "/v1/gliner2-large/systemone",
+  "price_per_1k_cents": 2,
+  "terms_basis": "Own hosting of open software: weights and package are Apache-2.0 (verified 25 Sep 2026). Caveat: Fastino's training data is partly GPT-4o-annotated. Same stack and mapping JevBench v1.4.2 measured.",
+  "question_types": [
+   "choice",
+   "noul",
+   "score"
+  ],
+  "modalities": [
+   "text"
+  ],
+  "routing": "paid",
+  "adapter": "systemone",
+  "base_url_env": "CPU_MODELS_URL",
+  "token_env": "CPU_MODELS_TOKEN",
+  "timeout_s": 30,
+  "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)",
+  "jevbench_key": "gliner2-large"
  }
 ]

@@ -15,7 +15,9 @@ def jevbench_rows():
 def jevbench_block(row):
     axes = row.get("axes") or {}
     capability = (axes["intelligence"] + axes["calibration"]) / 2 if axes.get("intelligence") is not None and axes.get("calibration") is not None else None
-    return {"version": "v1.4.2", "key": row["key"], "score": round(capability, 2) if capability is not None else None,
+    # Route and display by the published JevBench Score (composite), not the capability sub-score.
+    composite = round(row["jevbench_score"], 2) if row.get("jevbench_score") is not None else None
+    return {"version": "v1.4.2", "key": row["key"], "score": composite,
             "composite": round(row["jevbench_score"], 2) if row.get("jevbench_score") is not None else None,
             "rank": row.get("rank"), "listing": row.get("listing"), "tiers": row.get("tiers"),
             "p50_s": (row.get("speed") or {}).get("p50_s_adjusted"),
