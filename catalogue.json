@@ -1973,7 +1973,8 @@
    "base_url_env": "CPU_MODELS_URL",
    "token_env": "CPU_MODELS_TOKEN",
    "timeout_s": 30,
-   "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)"
+   "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)",
+   "health_path": "/health"
   },
   {
    "id": "verdict-1.4-151m",
@@ -2014,7 +2015,8 @@
    "base_url_env": "CPU_MODELS_URL",
    "token_env": "CPU_MODELS_TOKEN",
    "timeout_s": 30,
-   "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)"
+   "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)",
+   "health_path": "/health"
   },
   {
    "id": "gliner2-large",
@@ -2055,7 +2057,8 @@
    "base_url_env": "CPU_MODELS_URL",
    "token_env": "CPU_MODELS_TOKEN",
    "timeout_s": 30,
-   "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)"
+   "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)",
+   "health_path": "/health"
   }
  ]
 }

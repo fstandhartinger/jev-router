@@ -1371,7 +1371,8 @@
   "token_env": "CPU_MODELS_TOKEN",
   "timeout_s": 30,
   "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)",
-  "jevbench_key": "jeff"
+  "jevbench_key": "jeff",
+  "health_path": "/health"
  },
  {
   "id": "verdict-1.4-151m",
@@ -1397,7 +1398,8 @@
   "token_env": "CPU_MODELS_TOKEN",
   "timeout_s": 30,
   "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)",
-  "jevbench_key": "openjev-verdict-1.4"
+  "jevbench_key": "openjev-verdict-1.4",
+  "health_path": "/health"
  },
  {
   "id": "gliner2-large",
@@ -1423,6 +1425,7 @@
   "token_env": "CPU_MODELS_TOKEN",
   "timeout_s": 30,
   "hosting": "Jev Router CPU service on our own server (Hetzner, Germany)",
-  "jevbench_key": "gliner2-large"
+  "jevbench_key": "gliner2-large",
+  "health_path": "/health"
  }
 ]
