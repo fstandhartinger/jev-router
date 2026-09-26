@@ -22,7 +22,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -57,7 +57,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -92,7 +92,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -127,7 +127,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -162,7 +162,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -197,7 +197,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -232,7 +232,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "classifier-dev-fast",
-    "score": 61.99,
+    "score": 70.82,
     "composite": 70.82,
     "rank": null,
     "listing": "honorable_mention",
@@ -277,7 +277,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "decision-machine-1",
-    "score": 54.8,
+    "score": 39.94,
     "composite": 39.94,
     "rank": 23,
     "listing": "ranked",
@@ -327,7 +327,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "kushal-gemma4-31b-it-autoloops",
-    "score": 69.51,
+    "score": 29.96,
     "composite": 29.96,
     "rank": 42,
     "listing": "ranked",
@@ -372,7 +372,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "instinct",
-    "score": 64.91,
+    "score": 11.45,
     "composite": 11.45,
     "rank": 74,
     "listing": "ranked",
@@ -436,7 +436,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "djev",
-    "score": 51.18,
+    "score": 52.23,
     "composite": 52.23,
     "rank": 8,
     "listing": "ranked",
@@ -519,7 +519,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "simplejev-qwen3.8-27b",
-    "score": 63.04,
+    "score": 34.57,
     "composite": 34.57,
     "rank": 32,
     "listing": "ranked",
@@ -611,7 +611,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "system-one-open",
-    "score": 49.53,
+    "score": 45.11,
     "composite": 45.11,
     "rank": 14,
     "listing": "ranked",
@@ -646,7 +646,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "openjev-sglang",
-    "score": 59.33,
+    "score": 27.65,
     "composite": 27.65,
     "rank": 45,
     "listing": "ranked",
@@ -681,7 +681,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jevact",
-    "score": 42.17,
+    "score": 16.93,
     "composite": 16.93,
     "rank": 65,
     "listing": "ranked",
@@ -716,7 +716,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "open-alternative-jev",
-    "score": 48.64,
+    "score": 33.24,
     "composite": 33.24,
     "rank": 36,
     "listing": "ranked",
@@ -866,7 +866,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "standardone-8b",
-    "score": 56.02,
+    "score": 29.07,
     "composite": 29.07,
     "rank": 43,
     "listing": "ranked",
@@ -902,7 +902,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jevk5-v02",
-    "score": 61.71,
+    "score": 62.04,
     "composite": 62.04,
     "rank": 3,
     "listing": "ranked",
@@ -938,7 +938,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "cygnet",
-    "score": 62.22,
+    "score": 61.76,
     "composite": 61.76,
     "rank": 4,
     "listing": "ranked",
@@ -980,7 +980,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "djev",
-    "score": 51.18,
+    "score": 52.23,
     "composite": 52.23,
     "rank": 8,
     "listing": "ranked",
@@ -1016,7 +1016,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "decider-4b-v2",
-    "score": 62.17,
+    "score": 64.13,
     "composite": 64.13,
     "rank": 1,
     "listing": "ranked",
@@ -1084,7 +1084,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "reflex-4b",
-    "score": 58.93,
+    "score": 53.99,
     "composite": 53.99,
     "rank": 7,
     "listing": "ranked",
@@ -1120,7 +1120,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "winnow-12b",
-    "score": 56.56,
+    "score": 55.58,
     "composite": 55.58,
     "rank": 6,
     "listing": "ranked",
@@ -1162,7 +1162,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-omni",
-    "score": 55.42,
+    "score": 51.34,
     "composite": 51.34,
     "rank": 9,
     "listing": "ranked",
@@ -1224,7 +1224,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "simplejev-qwen3.8-27b",
-    "score": 63.04,
+    "score": 34.57,
     "composite": 34.57,
     "rank": 32,
     "listing": "ranked",
@@ -1260,7 +1260,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "spark-s1-4b-v6",
-    "score": 46.32,
+    "score": 44.62,
     "composite": 44.62,
     "rank": 15,
     "listing": "ranked",
@@ -1296,7 +1296,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "semif-qwen3.5-4b",
-    "score": 55.6,
+    "score": 47.69,
     "composite": 47.69,
     "rank": 11,
     "listing": "ranked",
@@ -1332,7 +1332,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jqv",
-    "score": 59.02,
+    "score": 44.35,
     "composite": 44.35,
     "rank": 17,
     "listing": "ranked",
@@ -1368,7 +1368,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "qwen3-reranker-4b",
-    "score": 54.92,
+    "score": 43.49,
     "composite": 43.49,
     "rank": 18,
     "listing": "ranked",
@@ -1404,7 +1404,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "laya",
-    "score": 49.9,
+    "score": 30.25,
     "composite": 30.25,
     "rank": 41,
     "listing": "ranked",
@@ -1439,7 +1439,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jeff",
-    "score": 52.32,
+    "score": 30.58,
     "composite": 30.58,
     "rank": 40,
     "listing": "ranked",
@@ -1522,7 +1522,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "kev-4b",
-    "score": 40.86,
+    "score": 36.14,
     "composite": 36.14,
     "rank": 28,
     "listing": "ranked",
@@ -1650,7 +1650,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jeff",
-    "score": 52.32,
+    "score": 30.58,
     "composite": 30.58,
     "rank": 40,
     "listing": "ranked",
@@ -1704,7 +1704,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -1739,7 +1739,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -1774,7 +1774,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -1809,7 +1809,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "jev-1.13.0",
-    "score": 64.7,
+    "score": 63.29,
     "composite": 63.29,
     "rank": 2,
     "listing": "ranked",
@@ -1885,7 +1885,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "kev-4b",
-    "score": 40.86,
+    "score": 36.14,
     "composite": 36.14,
     "rank": 28,
     "listing": "ranked",
@@ -1920,7 +1920,7 @@
    "jevbench": {
     "version": "v1.4.2",
     "key": "metask-jev-4b",
-    "score": 55.79,
+    "score": 47.78,
     "composite": 47.78,
     "rank": 10,
     "listing": "ranked",

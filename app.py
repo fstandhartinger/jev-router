@@ -420,7 +420,7 @@ async def hosted_inference(instance_id: str, request: Request):
 
 ROUTING_POLICY=("Concrete model IDs are never rerouted except to the fallback list you send. "
     "auto (default) ranks healthy models that support the request's modality and question types. "
-    "prefer=quality (default): highest published score first (JevBench v1.4.2 for text, ImageJevBench v0.1 for images; with route.task, the matching JevBench tier). "
+    "prefer=quality (default): highest published score first (the JevBench v1.4.2 JevBench Score for text, ImageJevBench v0.1 for images; with route.task, the matching JevBench tier). "
     "prefer=price: lowest price first. prefer=latency: lowest observed median latency first. "
     "prefer=balanced: score minus 10 points per second of latency and minus 10 points per tenfold price above USD 0.01 per 1,000 decisions. "
     "Ties break by price, then latency, then model ID. Up to 4 models are tried in order; failed attempts are never charged. "
@@ -464,7 +464,7 @@ RESPONSE_EXAMPLE = """{"answers": {"color": {"type": "choice", "choice": "red", 
 def bench_cell(v: dict[str, Any]) -> str:
     parts=[]
     j=v.get("jevbench"); i=v.get("imagejevbench")
-    if j and j.get("score") is not None: parts.append(f'JevBench {esc(j["version"])}: <strong>{float(j["score"]):.1f}</strong>'+(f' (#{j["rank"]})' if j.get("rank") else ''))
+    if j and j.get("score") is not None: parts.append(f'JevBench Score {esc(j["version"])}: <strong>{float(j["score"]):.1f}</strong>'+(f' (#{j["rank"]})' if j.get("rank") else ''))
     if i and i.get("score") is not None: parts.append(f'ImageJevBench {esc(i["version"])}: <strong>{float(i["score"]):.1f}</strong>'+(f' (#{i["rank"]})' if i.get("rank") else ''))
     return "<br>".join(parts) or '<span class="muted">not benchmarked</span>'
 
