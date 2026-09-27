@@ -91,6 +91,13 @@ def test_analytics_proxy_needs_a_server_side_key(client,monkeypatch):
     assert response.json()=={"detail":"analytics unavailable"}
     assert "UMAMI_API_KEY" not in response.text
 
+def test_analytics_script_is_served(client):
+    response=client.get("/analytics.js")
+    assert response.status_code==200
+    assert "javascript" in response.headers["content-type"]
+    assert "c1dafe3d-a89f-4b1e-9ee7-5543589b6d60" in response.text
+    assert "bh-analytics.app.mintapis.com" in response.text
+
 def test_mobile_navigation_wraps_instead_of_scrolling(client):
     response=client.get("/")
     assert "nav{gap:12px;flex-wrap:wrap;padding:16px}" in response.text

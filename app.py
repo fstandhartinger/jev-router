@@ -24,7 +24,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 
 import routing
@@ -362,6 +362,12 @@ async def shutdown():
 
 @app.get("/health")
 def health(): return {"ok": True, "stripe_mode": STRIPE_MODE, "payments_enabled": PAYMENTS_ENABLED, "hosting_control_configured":bool(HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN)}
+
+@app.get("/analytics.js", include_in_schema=False)
+def analytics_script():
+    path = Path(__file__).resolve().parent / "static" / "analytics.js"
+    return FileResponse(path, media_type="application/javascript",
+                        headers={"Cache-Control": "public, max-age=300"})
 
 @app.get("/api/analytics/visits")
 async def analytics_visits():
