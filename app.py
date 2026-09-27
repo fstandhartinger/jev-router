@@ -52,6 +52,20 @@ CHECKOUTS_PER_HOUR = int(os.getenv("CHECKOUTS_PER_HOUR", "5"))
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
 CANONICAL_HOST = os.getenv("CANONICAL_HOST", "jev-router.com")
 ALIAS_HOSTS = {h.strip().lower() for h in os.getenv("ALIAS_HOSTS", "www.jev-router.com,jev-router.app.mintapis.com,decision-models.com,www.decision-models.com,decisionmodels.io,www.decisionmodels.io,decisionmodels.cloud,www.decisionmodels.cloud,decisionmodels.online,www.decisionmodels.online,system-one.io,www.system-one.io,system-one.cloud,www.system-one.cloud,system-one.online,www.system-one.online").split(",") if h.strip()}
+ALIAS_UTM_SOURCES = {
+    "decision-models.com": "decision-models.com", "www.decision-models.com": "decision-models.com",
+    "decisionmodels.io": "decisionmodels.io", "www.decisionmodels.io": "decisionmodels.io",
+    "decisionmodels.cloud": "decisionmodels.cloud", "www.decisionmodels.cloud": "decisionmodels.cloud",
+    "decisionmodels.online": "decisionmodels.online", "www.decisionmodels.online": "decisionmodels.online",
+    "system-one.io": "system-one.io", "www.system-one.io": "system-one.io",
+    "system-one.cloud": "system-one.cloud", "www.system-one.cloud": "system-one.cloud",
+    "system-one.online": "system-one.online", "www.system-one.online": "system-one.online",
+}
+UMAMI_BASE_URL = "https://bh-analytics.app.mintapis.com"
+UMAMI_API_KEY = os.getenv("UMAMI_API_KEY", "").strip()
+UMAMI_WEBSITE_ID = "c1dafe3d-a89f-4b1e-9ee7-5543589b6d60"
+_UMAMI_VISITS_CACHE = {"visits": None, "expires_at": 0.0, "retry_after": 0.0}
+_UMAMI_VISITS_LOCK = asyncio.Lock()
 STRIPE_AUTOMATIC_TAX = os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() == "true"
 # Checkout adds tax only with Stripe Tax on; otherwise the charged amount is the gross price.
 VAT_NOTE = "VAT is added at checkout where it applies." if STRIPE_AUTOMATIC_TAX else "prices include any VAT that applies."
@@ -178,7 +192,12 @@ async def canonical_host(request: Request, call_next):
     host=(request.url.hostname or "").lower()
     if host in ALIAS_HOSTS and host!=CANONICAL_HOST:
         target = "https://"+CANONICAL_HOST + request.url.path
-        if request.url.query:
+        utm_source = ALIAS_UTM_SOURCES.get(host)
+        if utm_source:
+            # Keep only the fixed alias source. Arbitrary query values on a redirect
+            # can contain personal or account data and are not needed by the product.
+            target += "?" + urllib.parse.urlencode({"utm_source": utm_source})
+        elif request.url.query:
             target += "?" + request.url.query
         # 301 for page views; 308 keeps POST bodies intact for API clients on old hosts.
         return RedirectResponse(target, status_code=301 if request.method in ("GET","HEAD") else 308)
@@ -187,7 +206,7 @@ async def canonical_host(request: Request, call_next):
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
-    response.headers.update({"X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Permissions-Policy":"camera=(), microphone=(), geolocation=()","Content-Security-Policy":"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; form-action 'self' https://checkout.stripe.com; frame-ancestors 'none'; base-uri 'self'"})
+    response.headers.update({"X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Permissions-Policy":"camera=(), microphone=(), geolocation=()","Content-Security-Policy":"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://bh-analytics.app.mintapis.com; connect-src 'self' https://bh-analytics.app.mintapis.com; form-action 'self' https://checkout.stripe.com; frame-ancestors 'none'; base-uri 'self'"})
     return response
 
 def now_iso() -> str:
@@ -317,9 +336,11 @@ CSS = """
 
 DISCLAIMER="Jev is a trademark of TypeSafe AI, Inc. Jev Router is an independent service by productivity-boost.com Betriebs UG &amp; Co. KG and is not affiliated with, endorsed by, or sponsored by TypeSafe AI. We do not provide access to TypeSafe's Jev model. &ldquo;Jev-class&rdquo; describes the typed decision-API format (choice, noul, score) only."
 
-def page(title: str, body: str, user=None) -> HTMLResponse:
+def page(title: str, body: str, user=None, *, analytics: bool = False) -> HTMLResponse:
     auth = '<a href="/dashboard">Dashboard</a><a href="/logout">Sign out</a>' if user else '<a href="/login">Sign in</a>'
-    return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Jev Router</title>{seo.head(title)}<style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/pricing">Pricing</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/pricing">Pricing</a><a href="/decision-model-api">Decision model API</a><a href="/jev-alternatives">Jev alternatives</a><a href="/system-one-models">System One models</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a><p class="muted" style="flex-basis:100%;font-size:13px;margin:0">{DISCLAIMER}</p></footer></body></html>''')
+    counter = '<span id="visit-counter" class="muted" aria-live="polite" hidden></span>' if analytics else ''
+    tracker = '<script defer src="/analytics.js"></script>' if analytics else ''
+    return HTMLResponse(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Jev Router</title>{seo.head(title)}<style>{CSS}</style></head><body><a class="skip" href="#main">Skip to content</a><nav aria-label="Main navigation"><a class="brand" href="/">Jev Router</a><a href="/models-page">Models</a><a href="/pricing">Pricing</a><a href="/docs">Docs</a><a href="/status">Status</a>{auth}</nav><main id="main">{body}</main><footer><span>© 2026 productivity-boost.com Betriebs UG &amp; Co. KG</span><a href="/pricing">Pricing</a><a href="/decision-model-api">Decision model API</a><a href="/jev-alternatives">Jev alternatives</a><a href="/system-one-models">System One models</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="/impressum">Impressum</a><p class="muted" style="flex-basis:100%;font-size:13px;margin:0">{DISCLAIMER}</p>{counter}</footer>{tracker}</body></html>''')
 
 @app.on_event("startup")
 async def startup():
@@ -341,6 +362,47 @@ async def shutdown():
 
 @app.get("/health")
 def health(): return {"ok": True, "stripe_mode": STRIPE_MODE, "payments_enabled": PAYMENTS_ENABLED, "hosting_control_configured":bool(HOSTING_CONTROL_URL and HOSTING_CONTROL_TOKEN)}
+
+@app.get("/api/analytics/visits")
+async def analytics_visits():
+    if not UMAMI_API_KEY:
+        return JSONResponse({"detail": "analytics unavailable"}, status_code=503,
+                            headers={"Cache-Control": "no-store"})
+    now = time.monotonic()
+    if _UMAMI_VISITS_CACHE["visits"] is not None and _UMAMI_VISITS_CACHE["expires_at"] > now:
+        return JSONResponse({"visits": _UMAMI_VISITS_CACHE["visits"]},
+                            headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"})
+    if _UMAMI_VISITS_CACHE["retry_after"] > now:
+        return JSONResponse({"detail": "analytics unavailable"}, status_code=503,
+                            headers={"Cache-Control": "no-store"})
+    async with _UMAMI_VISITS_LOCK:
+        now = time.monotonic()
+        if _UMAMI_VISITS_CACHE["visits"] is not None and _UMAMI_VISITS_CACHE["expires_at"] > now:
+            return JSONResponse({"visits": _UMAMI_VISITS_CACHE["visits"]},
+                                headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"})
+        if _UMAMI_VISITS_CACHE["retry_after"] > now:
+            return JSONResponse({"detail": "analytics unavailable"}, status_code=503,
+                                headers={"Cache-Control": "no-store"})
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get(
+                    f"{UMAMI_BASE_URL}/api/websites/{UMAMI_WEBSITE_ID}/stats",
+                    params={"startAt": 0, "endAt": int(time.time() * 1000)},
+                    headers={"Authorization": f"Bearer {UMAMI_API_KEY}"},
+                )
+                response.raise_for_status()
+                data = response.json()
+            visits = data.get("visits") if isinstance(data, dict) else None
+            if type(visits) is not int or visits < 0:
+                raise ValueError("invalid Umami visits total")
+        except (httpx.HTTPError, ValueError, TypeError):
+            _UMAMI_VISITS_CACHE["retry_after"] = time.monotonic() + 60
+            return JSONResponse({"detail": "analytics unavailable"}, status_code=503,
+                                headers={"Cache-Control": "no-store"})
+        _UMAMI_VISITS_CACHE.update(visits=visits, expires_at=time.monotonic() + 300,
+                                   retry_after=0.0)
+        return JSONResponse({"visits": visits},
+                            headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"})
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon(): return Response(status_code=204)
@@ -480,7 +542,7 @@ def home(request: Request):
     body=f'''<section class="hero"><div class="eyebrow">Open decision models · one API</div><h1>Typed decisions from the best open model that is up right now.</h1><p class="lead">Ask choice, yes/no and score questions about text or images. Jev Router picks the model from published JevBench and ImageJevBench scores, price and live latency, fails over automatically, and tells you which model answered and what it cost.</p><div class="actions"><a class="button primary" href="/login">Get an API key</a><a class="button" href="/models-page">See {len(CATALOGUE)} catalogued systems</a><a class="button" href="/docs">Read the docs</a></div></section>
 <section class="grid"><div class="card"><h3>Routed by published scores</h3><p class="muted"><code>auto</code> follows one public rule: best benchmark score among healthy models, or the cheapest, fastest or best-balanced if you ask. {len(live)} routes are live now.</p></div><div class="card"><h3>Two API shapes</h3><p class="muted">A decision API (<code>/v1/systemone</code>, <code>/v1/multimodal</code>) and an OpenAI-compatible <code>/v1/chat/completions</code> with typed <code>questions</code>.</p></div><div class="card"><h3>Prepaid, capped, transparent</h3><p class="muted">Per-decision prices from USD 0.01 per 1,000. Prepaid credit via Stripe, daily spend caps, failed calls never charged, unused credit refundable.</p></div></section>
 <h2>One request</h2><pre tabindex="0">{esc(HOME_EXAMPLE)}</pre><p class="muted">The response contains the typed answers, the model that answered, any attempts it failed over from, and the cost in the <code>X-Jev-Cost-Usd</code> header.</p>'''+seo.faq_html(seo.HOME_FAQ)
-    return page("One API for open decision models", body, user)
+    return page("One API for open decision models", body, user, analytics=True)
 
 @app.get("/models")
 def models(): return {"object":"list","data":[{"id":k,**v} for k,v in public_models().items()],"listed_only":[{f:v.get(f) for f in ("id","display","vendor","homepage","terms_basis","terms_url","jevbench","imagejevbench")} for v in listed_models()],"routing_policy":ROUTING_POLICY}
@@ -508,7 +570,7 @@ def models_page(request: Request):
 <h2>Routing aliases</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Rule</th><th>Current order (text, choice)</th></tr></thead><tbody>{metas}</tbody></table></div>
 <h2>Routable models</h2><div class="table-wrap"><table><thead><tr><th>Model</th><th>Status</th><th>Input · questions</th><th>Price</th><th>Published score</th><th>Why we may route</th></tr></thead><tbody>{rows}</tbody></table></div>
 <h2>Listed for comparison, not routed</h2><p class="muted">These systems are online, but their licence or terms do not let a third party route or resell traffic, or they are an author's free demo. Use them directly with their provider.</p><div class="table-wrap"><table><thead><tr><th>System</th><th>Published score</th><th>Why not routed</th><th></th></tr></thead><tbody>{listed}</tbody></table></div>{hosting}'''
-    return page("Models", body, current_user(request))
+    return page("Models", body, current_user(request), analytics=True)
 
 @app.get("/pricing", response_class=HTMLResponse)
 def pricing(request: Request):
@@ -521,7 +583,7 @@ def pricing(request: Request):
 <div class="table-wrap"><table><thead><tr><th>Model we host</th><th>Per 1,000 decisions</th><th>Per 1,000,000 decisions</th><th>Published score</th></tr></thead><tbody>{rows}</tbody></table></div>
 <div class="grid" style="margin-top:24px">{free_card}<div class="card"><h3>Bring your own key</h3><p class="muted">{byok}. Your key goes straight to that provider; we add nothing and never store it.</p></div><div class="card"><h3>Credit</h3><p class="muted">Top up USD {MIN_TOPUP_CENTS/100:.0f} to USD {MAX_TOPUP_CENTS/100:.0f} per payment by card through Stripe. Prices in USD; {VAT_NOTE} Credit does not expire. Unused credit is refundable within 14 days of purchase.</p></div></div>
 <h2>Limits</h2><p>{RATE_LIMIT_PER_MINUTE} requests per minute per API key, a daily spend cap you set yourself (default USD 100), and at most USD {DAILY_TOPUP_CAP_CENTS/100:.0f} of top-ups per account per day. Failed and failed-over attempts are never charged. <code>auto</code> requests cost the price of the model that actually answered, shown in every response.</p>'''
-    return page("Pricing", body, current_user(request))
+    return page("Pricing", body, current_user(request), analytics=True)
 
 @app.get("/docs", response_class=HTMLResponse)
 def docs(request: Request):
@@ -535,7 +597,7 @@ def docs(request: Request):
 <h2>Bring your own key</h2><p>For providers marked BYOK, pass <code>"provider_keys": {{"vendor": "key"}}</code>. The key is sent only to that provider for this request and is never stored or logged. We charge nothing for these calls.</p>
 <h2>Errors</h2><p><code>401</code> bad key · <code>402</code> insufficient credit or your daily cap · <code>429</code> rate limit · <code>502</code> every attempted model failed (nothing charged) · <code>503</code> no eligible model, or the operator's daily cap.</p>
 <p class="notice">TypeSafe's Jev is not available through Jev Router; use it directly from TypeSafe AI.</p>'''
-    return page("API docs", body, current_user(request))
+    return page("API docs", body, current_user(request), analytics=True)
 
 LEGAL_UPDATED="26 September 2026"
 OPERATOR="productivity-boost.com Betriebs UG (haftungsbeschränkt) &amp; Co. KG, Reichenbergerstr. 2, 94036 Passau, Germany"
@@ -555,6 +617,7 @@ LEGAL={
 "privacy":("Privacy policy",f"""<p>Controller (Art. 4(7) GDPR): {OPERATOR}, represented by Florian Standhartinger, info@productivity-boost.com. Supervisory authority: Bayerisches Landesamt für Datenschutzaufsicht (BayLDA), Ansbach.</p>
 <h3>What we store</h3><p><strong>Account:</strong> Google account identifier, email address and name from Google sign-in (scopes openid, email, profile). <strong>API keys:</strong> a prefix and a hash, never the key itself. <strong>Billing:</strong> credit ledger and Stripe checkout and payment references; card data is handled only by Stripe. <strong>Usage:</strong> per request the time, model, provider, price and latency. Legal basis: performance of the contract (Art. 6(1)(b) GDPR) and legal retention duties (Art. 6(1)(c)).</p>
 <h3>Request content</h3><p>We do not store request bodies, answers or images. Their content is forwarded only to the model that handles the request: our own servers in Germany for models we host, or the third-party provider named on the models page when that model is selected directly or chosen by <code>auto</code>. Use the <code>model</code> and <code>route</code> settings to restrict which providers receive your data. Provider keys you pass for bring-your-own-key calls are forwarded to that provider and never stored.</p>
+<h3>Website analytics</h3><p>We use Umami, a self-hosted, cookieless analytics tool on servers in Germany. It processes IP address and browser information to calculate visit counts; raw IP addresses are not stored. The tracker honors Do Not Track and Global Privacy Control, sends only an approved public page path, and does not receive account details, API request content or arbitrary query strings. The decision-model and System One domains appear as an approved <code>utm_source</code> value so we can see which domain led to the site.</p>
 <h3>Logs and cookies</h3><p>Server logs contain the request path, status and duration. IP addresses are processed for rate limiting and security (Art. 6(1)(f)). We use one strictly necessary session cookie for sign-in, and no tracking or advertising cookies.</p>
 <h3>Processors</h3><p>Stripe (payments), Google (sign-in), Hetzner (hosting in Germany), Neon (database). Stripe and Google may process data outside the EU under standard contractual clauses.</p>
 <h3>Retention and rights</h3><p>Account data is kept while your account exists; accounting records for the periods required by German commercial and tax law. You have the rights of access, rectification, erasure, restriction, portability and objection, and may complain to a supervisory authority. Write to info@productivity-boost.com.</p>"""),
@@ -564,7 +627,7 @@ LEGAL={
 for _slug,(_title,_text) in LEGAL.items():
     def make_legal(slug=_slug,title=_title,text=_text):
         @app.get("/"+slug, response_class=HTMLResponse, name="legal_"+slug)
-        def legal(request: Request): return page(title, f'<h1 style="font-size:52px">{title}</h1><div class="card">{text}<p class="muted">Last updated {LEGAL_UPDATED}.</p></div>', current_user(request))
+        def legal(request: Request): return page(title, f'<h1 style="font-size:52px">{title}</h1><div class="card">{text}<p class="muted">Last updated {LEGAL_UPDATED}.</p></div>', current_user(request), analytics=True)
     make_legal()
 
 @app.get("/status", response_class=HTMLResponse)
@@ -573,7 +636,7 @@ def status(request: Request):
     concrete=[(k,v) for k,v in pm.items() if k not in META_MODELS]
     rows="".join(f'<tr><th scope="row">{esc(k)}</th><td>{status_badge(v["status"])}</td><td>{(str(round(v["observed_latency_ms"]))+" ms") if v.get("observed_latency_ms") else "—"}</td></tr>' for k,v in concrete)
     live=len(live_routes())
-    return page("Status", f'<h1 style="font-size:52px">Status</h1><div class="card"><h3><span class="live">●</span> Gateway operational</h3><p class="muted">{live} of {len(concrete)} routes currently report live. Machine-readable: <a href="/models"><code>/models</code></a>.</p></div><div class="table-wrap"><table><thead><tr><th>Model</th><th>Health</th><th>Observed latency (moving average)</th></tr></thead><tbody>{rows}</tbody></table></div>', current_user(request))
+    return page("Status", f'<h1 style="font-size:52px">Status</h1><div class="card"><h3><span class="live">●</span> Gateway operational</h3><p class="muted">{live} of {len(concrete)} routes currently report live. Machine-readable: <a href="/models"><code>/models</code></a>.</p></div><div class="table-wrap"><table><thead><tr><th>Model</th><th>Health</th><th>Observed latency (moving average)</th></tr></thead><tbody>{rows}</tbody></table></div>', current_user(request), analytics=True)
 
 @app.get("/login")
 def login(request: Request):

@@ -45,6 +45,14 @@ def test_public_pages_and_model_neutrality(client):
     assert "not affiliated with, endorsed by, or sponsored by TypeSafe AI" in client.get("/").text
     imp=client.get("/impressum").text
     assert "HRB 8453" in imp and "Reichenbergerstr. 2" in imp
+    for path in ("/", "/models-page", "/pricing", "/docs", "/status", "/terms", "/privacy", "/refunds", "/impressum"):
+        page=client.get(path)
+        assert '<script defer src="/analytics.js"></script>' in page.text, path
+        assert 'id="visit-counter"' in page.text, path
+        assert "https://bh-analytics.app.mintapis.com" in page.headers["content-security-policy"]
+    privacy=client.get("/privacy").text
+    assert "self-hosted, cookieless analytics tool on servers in Germany" in privacy
+    assert "raw IP addresses are not stored" in privacy
 
 def test_home_leads_with_router_and_hides_unavailable_hosting(client, monkeypatch):
     monkeypatch.setattr(app,"HOSTING_CONTROL_URL","")
@@ -56,10 +64,32 @@ def test_home_leads_with_router_and_hides_unavailable_hosting(client, monkeypatc
 
 def test_canonical_redirects_for_alias_domains(client):
     r=client.get("/pricing?x=1",headers={"host":"decision-models.com"},follow_redirects=False)
-    assert r.status_code==301 and r.headers["location"]=="https://jev-router.com/pricing?x=1"
+    assert r.status_code==301 and r.headers["location"]=="https://jev-router.com/pricing?utm_source=decision-models.com"
     r=client.post("/v1/systemone",headers={"host":"www.system-one.io"},json={},follow_redirects=False)
     assert r.status_code==308
     assert client.get("/",headers={"host":"jev-router.com"},follow_redirects=False).status_code==200
+
+def test_decision_aliases_use_only_their_fixed_utm_source(client):
+    aliases={
+        "decision-models.com":"decision-models.com", "www.decision-models.com":"decision-models.com",
+        "decisionmodels.io":"decisionmodels.io", "www.decisionmodels.io":"decisionmodels.io",
+        "decisionmodels.cloud":"decisionmodels.cloud", "www.decisionmodels.cloud":"decisionmodels.cloud",
+        "decisionmodels.online":"decisionmodels.online", "www.decisionmodels.online":"decisionmodels.online",
+        "system-one.io":"system-one.io", "www.system-one.io":"system-one.io",
+        "system-one.cloud":"system-one.cloud", "www.system-one.cloud":"system-one.cloud",
+        "system-one.online":"system-one.online", "www.system-one.online":"system-one.online",
+    }
+    for host, source in aliases.items():
+        response=client.get("/pricing?email=private%40example.com&token=discard",headers={"host":host},follow_redirects=False)
+        assert response.status_code==301, host
+        assert response.headers["location"]==f"https://jev-router.com/pricing?utm_source={source}", host
+
+def test_analytics_proxy_needs_a_server_side_key(client,monkeypatch):
+    monkeypatch.setattr(app,"UMAMI_API_KEY","")
+    response=client.get("/api/analytics/visits")
+    assert response.status_code==503
+    assert response.json()=={"detail":"analytics unavailable"}
+    assert "UMAMI_API_KEY" not in response.text
 
 def test_mobile_navigation_wraps_instead_of_scrolling(client):
     response=client.get("/")
