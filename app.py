@@ -29,6 +29,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import routing
 import seo
+import logkit
+
+# Structured JSON logs (logging standard, AGENTS.md). The legal page says server logs hold path, status and
+# duration, so the access line leaves IP and user agent out. Request bodies/answers are never logged.
+LOG = logkit.setup(app="jev-router")
 
 APP_URL = os.getenv("APP_URL", "http://localhost:8080").rstrip("/")
 DB_PATH = os.getenv("DATABASE_PATH", "/data/jev-router.db")
@@ -186,6 +191,7 @@ async def probe_providers() -> None:
 
 app = FastAPI(title="Jev Router", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=APP_URL.startswith("https://"), max_age=86400 * 14)
+app.add_middleware(logkit.ASGIMiddleware, logger=LOG, ip=False, ua=False)
 
 @app.middleware("http")
 async def canonical_host(request: Request, call_next):
@@ -477,7 +483,7 @@ async def hosting_stop(instance_id: str, request: Request):
 
 @app.post("/hosting/{instance_id}/v1/systemone")
 async def hosted_inference(instance_id: str, request: Request):
-    user=api_user(request.headers.get("authorization")); enforce_rate_limit(user["key_id"])
+    user=api_user(request.headers.get("authorization")); logkit.bind(account_id=user["id"],key_id=user["key_id"]); enforce_rate_limit(user["key_id"])
     if int(request.headers.get("content-length","0") or 0)>MAX_BODY: raise HTTPException(413,"Request too large")
     with dbconn() as db:
         row=db.execute("SELECT * FROM hosting_instances WHERE id=? AND user_id=?",(instance_id,user["id"])).fetchone()
@@ -995,7 +1001,7 @@ async def reconcile_hosting() -> dict[str, int]:
     with dbconn() as db: rows=db.execute("SELECT * FROM hosting_instances WHERE status IN ('starting','running','stopping')").fetchall()
     try: remote=(await hosting_control("GET","/instances")).get("instances",[])
     except Exception as exc:
-        print(f"hosting reaper provider verification failed: {type(exc).__name__}",flush=True)
+        LOG.warning("hosting.reaper_verify_failed",exc_info=True)
         return {"charged_minutes":0,"stopped":0,"orphans_removed":0,"provider_verified":False}
     remote_by_id={str(x.get("id")):x for x in remote if x.get("id")}
     # Provisioning can complete while the provider inventory request is in flight.
@@ -1017,7 +1023,7 @@ async def reconcile_hosting() -> dict[str, int]:
                 with dbconn() as db: db.execute("UPDATE hosting_instances SET status='stopped',stopped_at=?,stop_reason=COALESCE(stop_reason,'provider shutdown verified') WHERE id=? AND status='stopping'",(now_iso(),row["id"]))
                 stopped+=1; continue
             try: await stop_hosting_instance(row,row["stop_reason"] or "retrying provider shutdown")
-            except Exception as exc: print(f"hosting shutdown retry failed: {type(exc).__name__}",flush=True)
+            except Exception as exc: LOG.warning("hosting.shutdown_retry_failed",exc_info=True)
             else: stopped+=1
             continue
         provider_id=str(row["provider_instance_id"] or "")
@@ -1029,14 +1035,14 @@ async def reconcile_hosting() -> dict[str, int]:
         idle_limit=int(setting["idle_minutes"]) if setting else 10
         if idle>=idle_limit and row["status"] in ("starting","running"):
             try: await stop_hosting_instance(row,f"idle for {idle_limit} minutes")
-            except Exception as exc: print(f"hosting idle stop failed: {type(exc).__name__}",flush=True)
+            except Exception as exc: LOG.warning("hosting.idle_stop_failed",exc_info=True)
             stopped+=1; continue
         elapsed=max(1,int((now-datetime.fromisoformat(row["started_at"])).total_seconds()//60)+1)
         for minute in range(int(row["billed_minutes"])+1,elapsed+1):
             if charge_hosting_minute(row["id"],minute): charged+=1
             else:
                 try: await stop_hosting_instance(row,"prepaid balance or spend cap exhausted")
-                except Exception as exc: print(f"hosting zero-balance stop failed: {type(exc).__name__}",flush=True)
+                except Exception as exc: LOG.warning("hosting.zero_balance_stop_failed",exc_info=True)
                 stopped+=1; break
     return {"charged_minutes":charged,"stopped":stopped,"orphans_removed":orphans,"provider_verified":True}
 
@@ -1044,7 +1050,7 @@ async def hosting_reaper_loop() -> None:
     while True:
         try: await reconcile_hosting()
         except asyncio.CancelledError: raise
-        except Exception as exc: print(f"hosting reaper failed: {type(exc).__name__}",flush=True)
+        except Exception as exc: LOG.error("hosting.reaper_failed",exc_info=True)
         await asyncio.sleep(HOSTING_REAPER_SECONDS)
 
 def normalise_answers(model:str,questions:dict,out:Any)->dict:
@@ -1159,6 +1165,7 @@ async def decide(request:Request,multimodal=False,body:dict|None=None):
                 db.execute("INSERT INTO usage_events(user_id,api_key_id,model,microusd,provider,latency_ms,created_at) VALUES(?,?,?,?,?,?,?)",(user["id"],user["key_id"],model,microusd,info["provider"],ms,now_iso()))
                 db.execute("DELETE FROM spend_reservations WHERE ref=?",(reservation,))
             out["routing"]={"requested":body.get("model") or "auto","answered_by":model,"attempts":errors,"price_usd_per_1k":info["price_per_1k_cents"]/100,"billing":info["routing"]}
+            LOG.info("route.decided",extra={"requested":body.get("model") or "auto","answered_by":model,"provider":info["provider"],"candidates":len(choices),"failed_attempts":errors,"latency_ms":ms,"microusd":microusd,"multimodal":multimodal,"questions":len(body.get("questions") or [])})
             return JSONResponse(out,headers={"X-Jev-Provider":info["provider"],"X-Jev-Model":model,"X-Jev-Latency-Ms":str(ms),"X-Jev-Cost-Usd":f"{microusd/1_000_000:.6f}","Cache-Control":"no-store"})
         except HTTPException: raise
         except asyncio.CancelledError:
@@ -1170,6 +1177,8 @@ async def decide(request:Request,multimodal=False,body:dict|None=None):
             refund_reservation(user["id"],microusd,reservation)
             detail=f"HTTP {e.response.status_code}" if isinstance(e,httpx.HTTPStatusError) else type(e).__name__ if not isinstance(e,ValueError) else str(e)[:160]
             errors.append({"model":model,"error":detail})
+            LOG.warning("route.provider_failed",extra={"model":model,"provider":info["provider"],"error":detail,"request_specific":request_specific,"latency_ms":round((time.perf_counter()-started)*1000,1)})
+    LOG.error("route.all_failed",extra={"requested":body.get("model") or "auto","attempts":errors})
     raise HTTPException(502,{"error":"all_providers_failed","attempts":errors})
 
 @app.post("/v1/systemone")

@@ -7,3 +7,4 @@ OUTPUT.md
 PROMPT.md
 session.log
 .venv/
+.heavy-run/
