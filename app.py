@@ -191,7 +191,6 @@ async def probe_providers() -> None:
 
 app = FastAPI(title="Jev Router", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=APP_URL.startswith("https://"), max_age=86400 * 14)
-app.add_middleware(logkit.ASGIMiddleware, logger=LOG, ip=False, ua=False)
 
 @app.middleware("http")
 async def canonical_host(request: Request, call_next):
@@ -1222,6 +1221,9 @@ def openai_models():
     return {"object":"list","data":[{"id":k,"object":"model","created":1790000000,"owned_by":v["provider"],"status":v["status"],"billing":v["billing"]} for k,v in public_models().items()]}
 
 seo.register(app, page, public_models, current_user)
+# Added last = outermost: the access line and X-Request-Id also cover redirects and responses produced by the
+# @app.middleware handlers above.
+app.add_middleware(logkit.ASGIMiddleware, logger=LOG, ip=False, ua=False)
 
 if __name__ == "__main__":
     import uvicorn
